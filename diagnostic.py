@@ -10,7 +10,6 @@ from datasets import _char_to_smallnum_
 
 WIDTH = 450
 HEIGHT = 450
-SCORE_BANNER_HEIGHT = 100
 
 def color_from_tanh(tanh):
 	h = '0123456789ABCDEF'
@@ -29,56 +28,32 @@ class display(Frame):
 
 		# draw the board in the background
 		if len(self.frame_stack) and self.frame < len(self.frame_stack):
-			player = 1 if self.frame % 2 == 0 else -1
-			inputs = np.zeros((8, self.edge, self.edge), dtype=np.intc)
-			#this is stupid, i know...
-			for x in range(self.frame-3, self.frame):
-				if 0 <= x:
-					print(x,end=' ')
-					rules = game_state_to_model_inputs(inputs, self.frame_stack[x][0], self.edge, player)
-				else:
-					print(x,'occurs before the game. skipping')
-			print(self.frame,end=' ')
-			rules = game_state_to_model_inputs(inputs, self.frame_stack[self.frame][0], self.edge, player)
-			inputs = np.array([inputs])
-			inputs = np.moveaxis(inputs, 1, -1)
-			rules = np.array([rules])
-			policy, ownership, score, value = self.model.predict([inputs, rules])
-			inputs = np.moveaxis(inputs, -1, 1)[0]
+			player_to_move = 1 if self.frame % 2 == 0 else -1
+			model_inputs = game_state_to_model_inputs(self.frame_stack[self.frame][0], player_to_move)
+			model_inputs = np.array([model_inputs])
+			model_inputs = np.moveaxis(model_inputs, 1, -1)
+			policy, value = self.model.predict(model_inputs)
+			model_inputs = np.moveaxis(model_inputs, -1, 1)[0]
 			policy /= np.amax(policy)
-			policy = np.reshape(policy, (self.edge, self.edge))
-			ownership = ownership[0]
-			score = score[0]
+			policy = np.reshape(np.array(policy[0][:-1]), (self.edge, self.edge))
 			value = value[0]
 
-			print('player to move:', rules[0][0], 'komi from perspective of current player:', rules[0][1], 'value of position:', value)
+			print('player to move:', player_to_move, 'value of position:', value)
 
 			display_matrix = np.zeros((self.edge, self.edge))
-			if self.channel_selection == 1:		display_matrix = inputs[0]
-			if self.channel_selection == 2:		display_matrix = inputs[1]
-			if self.channel_selection == 3:		display_matrix = inputs[2]
-			if self.channel_selection == 4:		display_matrix = inputs[3]
-			if self.channel_selection == 5:		display_matrix = inputs[4]
-			if self.channel_selection == 6:		display_matrix = inputs[5]
-			if self.channel_selection == 7:		display_matrix = inputs[6]
-			if self.channel_selection == 8:		display_matrix = inputs[7]
+			if self.channel_selection == 1:		display_matrix = model_inputs[0]
+			if self.channel_selection == 2:		display_matrix = model_inputs[1]
+			if self.channel_selection == 3:		display_matrix = model_inputs[2]
+			if self.channel_selection == 4:		display_matrix = model_inputs[3]
+			if self.channel_selection == 5:		display_matrix = model_inputs[4]
+			if self.channel_selection == 6:		display_matrix = model_inputs[5]
+			if self.channel_selection == 7:		display_matrix = model_inputs[6]
+			if self.channel_selection == 8:		display_matrix = model_inputs[7]
 			if self.channel_selection == 9:		display_matrix = policy
-			if self.channel_selection == 0:		display_matrix = ownership
 
 			for y in range(self.edge):
 				for x in range(self.edge):
 					self.canvas.create_rectangle(x * self.wstep, y * self.hstep, (x+1) * self.wstep, (y+1) * self.hstep, fill=color_from_tanh(display_matrix[y][x]), outline="")
-
-			#draw the score across the bottom
-			ycum = 0
-			xstep = WIDTH/score.shape[0]
-			bh = HEIGHT
-			sh = SCORE_BANNER_HEIGHT
-			wh = bh+sh
-			for x in range(len(score)):
-				self.canvas.create_line(x*xstep, wh-sh*ycum, (x+1)*xstep, wh-sh*(ycum+score[x]))
-				self.canvas.create_line(x*xstep, wh, (x+1)*xstep, wh-sh*score[x])
-				ycum += score[x]
 
 		# draw the lines on the board
 		for i in range(1, self.edge + 1):
@@ -105,7 +80,7 @@ class display(Frame):
 		self.canvas.update_idletasks()
 
 	def load_games(self):
-		self.game_stack = [x for x in open('modernized 9x9 games', 'r').read().split('\n') if len(x)]
+		self.game_stack = [x for x in open('10k vanilla mcts games', 'r').read().split('\n') if len(x)]
 		print(len(self.game_stack), 'games loaded')
 		self.game = 0
 
@@ -195,12 +170,12 @@ class display(Frame):
 		self.master.columnconfigure(0, weight=1)
 		self.grid()
 
-		self.canvas = Canvas(self, width=WIDTH, height=HEIGHT+SCORE_BANNER_HEIGHT, bg='beige')
+		self.canvas = Canvas(self, width=WIDTH, height=HEIGHT, bg='beige')
 		self.canvas.grid(row=0, column=0)
 
 		self.bind_all('<KeyPress>', self.keyboard)
 
-		self.model = load_model('crappy go model b6c96 9000.h5')
+		self.model = load_model('crappy go model b4c32 4500.h5')
 		self.channel_selection = 0
 
 		self.redraw_and_clear()

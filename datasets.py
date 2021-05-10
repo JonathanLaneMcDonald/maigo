@@ -24,196 +24,145 @@ def parse_game_record(game_record):
 		'outcome': float(game_record.split()[6])
 	}
 
-def game_state_to_model_inputs(feature_history, game, board_size, player):
+def game_state_to_model_inputs(game, player_to_move):
 
-	rules = np.array([player, game.komi/10], dtype=np.float)
+	model_inputs = np.zeros((8, 9, 9), dtype=np.intc)
 
-	# i'm just going to hard-code this for now while i'm trying to decide what i'm doing
-	feature_history[7] = feature_history[5]
-	feature_history[6] = feature_history[4]
-	feature_history[5] = feature_history[3]
-	feature_history[4] = feature_history[2]
-	feature_history[3] = feature_history[1]
-	feature_history[2] = feature_history[0]
-
-	# my stones/opponent stones
-	new_black_plane = np.zeros((board_size, board_size), dtype=np.intc)
-	new_white_plane = np.zeros((board_size, board_size), dtype=np.intc)
+	# stone placement
+	black_stones_plane = np.zeros((9, 9), dtype=np.intc)
+	white_stones_plane = np.zeros((9, 9), dtype=np.intc)
 
 	for i in range(game.area):
-		y, x = i // board_size, i % board_size
+		y, x = i // 9, i % 9
 		if game.is_black(i):
-			new_black_plane[y][x] = 1
+			black_stones_plane[y][x] = 1
 		elif game.is_white(i):
-			new_white_plane[y][x] = 1
+			white_stones_plane[y][x] = 1
 
-	feature_history[0] = new_black_plane
-	feature_history[1] = new_white_plane
+	model_inputs[0] = black_stones_plane
+	model_inputs[1] = white_stones_plane
 
-	return rules
+	# legal moves
+	black_legal_moves = np.zeros((9, 9), dtype=np.intc)
+	white_legal_moves = np.zeros((9, 9), dtype=np.intc)
 
-def game_record_to_model_outputs(game_as_dict, moves, target, board_size):
-	policy = np.zeros((board_size, board_size), dtype=np.intc)
-	ownership = np.zeros((board_size, board_size), dtype=np.intc)
-	final_score = np.zeros(1, dtype=np.intc)
-	value = np.zeros(1, dtype=np.float)
+	for i in range(game.area):
+		y, x = i // 9, i % 9
+		if game.is_legal_for_black(i):
+			black_legal_moves[y][x] = 1
+		if game.is_legal_for_white(i):
+			white_legal_moves[y][x] = 1
 
-	move_value = _char_to_smallnum_(moves[target])
-	if move_value < board_size**2:
-		y, x = move_value // board_size, move_value % board_size
-		policy[y][x] = 1
+	model_inputs[2] = black_legal_moves
+	model_inputs[3] = white_legal_moves
 
-	for i in range(len(game_as_dict['ownership'])):
-		y, x = i // board_size, i % board_size
-		if game_as_dict['ownership'][i] == 'b':
-				ownership[y][x] = 1
-		elif game_as_dict['ownership'][i] == 'w':
-				ownership[y][x] = -1
+	# liberties
+	liberties = np.zeros((3, 9, 9), dtype=np.intc)
 
-	final_score[0] = max(0, min(2*game_as_dict['boardsize']**2, game_as_dict['score']+game_as_dict['boardsize']**2))
+	for i in range(game.area):
+		y, x = i // 9, i % 9
+		if 0 < game.get_liberties_for_position(i) <= 3:
+			liberties[game.get_liberties_for_position(i)-1][y][x] = 1
 
-	value[0] = game_as_dict['outcome']
+	model_inputs[4] = liberties[0]
+	model_inputs[5] = liberties[1]
+	model_inputs[6] = liberties[2]
 
-	return policy, ownership, final_score, value
+	# who's turn is it?
+	if player_to_move == 1:
+		model_inputs[7] = np.zeros((9, 9), dtype=np.intc)
+	else:
+		model_inputs[7] = np.ones((9, 9), dtype=np.intc)
 
-def stringify_inputs_and_targets(meta_data, features, rules, policy, ownership, score, value):
-	feature_state = []
-	for r in range(meta_data['boardsize']):
-		for c in range(meta_data['boardsize']):
-			f1 = 0
-			if features[0][r][c]:				f1 = 1
-			elif features[1][r][c]:				f1 = 2
+	return model_inputs
 
-			f2 = 0
-			if features[2][r][c]:				f2 = 1
-			elif features[3][r][c]:				f2 = 2
+def game_info_to_model_outputs(info, target):
+	policy = np.array([_char_to_smallnum_(info['moves'][target])], dtype=np.intc)
+	value = np.array([info['outcome']], dtype=np.intc)
+	return policy, value
 
-			f3 = 0
-			if features[4][r][c]:				f3 = 1
-			elif features[5][r][c]:				f3 = 2
+def stringify_inputs_and_targets(model_inputs, policy_target, value_target, player_to_move):
+	stringified = []
+	for r in range(9):
+		for c in range(9):
+			# encoding stone locations {0,1,2}
+			stones = 0
+			if model_inputs[0][r][c] == 1:		stones = 1
+			if model_inputs[1][r][c] == 1:		stones = 2
 
-			f4 = 0
-			if features[6][r][c]:				f4 = 1
-			elif features[7][r][c]:				f4 = 2
+			# encoding legal moves {0,1,2,3}
+			legality = (model_inputs[2][r][c]<<1) + model_inputs[3][r][c]
 
-			feature_state.append(_smallnum_to_char_(f4*27 + f3*9 + f2*3 + f1))
+			# encoding liberties {0,1,2,3}
+			liberties = 0
+			if model_inputs[4][r][c] == 1:		liberties = 1
+			if model_inputs[5][r][c] == 1:		liberties = 2
+			if model_inputs[6][r][c] == 1:		liberties = 3
 
-	prediction_state = []
-	one_hot_policy = meta_data['boardsize']
-	for r in range(meta_data['boardsize']):
-		for c in range(meta_data['boardsize']):
-			prediction_state.append(_smallnum_to_char_(ownership[r][c] + 1))
+			# we already know who's turn it is, so we can leave channel 7 out to make this more compressible
 
-			if policy[r][c]:
-				one_hot_policy = r*meta_data['boardsize'] + c
+			stringified.append(_smallnum_to_char_((stones*16) + (legality*4) + liberties))
 
-	return ''.join(feature_state) + ' ' + str(rules[0]) + ' ' + str(10*rules[1]) + ' ' + str(one_hot_policy) + ' ' + ''.join(prediction_state) + ' ' + str(score[0]) + ' ' + str(value[0])
+	return ''.join(stringified) + ' ' + str(player_to_move) + ' ' + str(policy_target[0]) + ' ' + str(value_target[0])
 
-def string_frame_to_training_frame(frame, board_size):
-	features = np.zeros((8, board_size, board_size), dtype=np.intc)
-	rules = np.zeros(2, dtype=np.float)
-	policy = np.zeros(1, dtype=np.intc)
-	ownership = np.zeros((board_size, board_size), dtype=np.intc)
-	score = np.zeros(1, dtype=np.intc)
-	value = np.zeros(1, dtype=np.float)
+def stringified_to_training_frame(frame):
+	model_inputs = np.zeros((8, 9, 9), dtype=np.intc)
 
-	packed_features = frame.split()[0]
-	for i in range(board_size**2):
-		y, x = i // board_size, i % board_size
+	packed_model_inputs = frame.split()[0]
+	player_to_move = int(frame.split()[1])
+	for i in range(81):
+		y, x = i // 9, i % 9
 
-		position = _char_to_smallnum_(packed_features[i])
+		value = _char_to_smallnum_(packed_model_inputs[i])
 
-		f1 = position % 3
-		f2 = (position // 3) % 3
-		f3 = (position // 9) % 3
-		f4 = (position // 27) % 3
+		stones = value // 16
+		if stones == 1:		model_inputs[0][y][x] = 1
+		if stones == 2:		model_inputs[1][y][x] = 1
 
-		if f1 == 1:		features[0][y][x] = 1
-		elif f1 == 2:	features[1][y][x] = 1
+		legality = (value % 16) // 4
+		if legality & 2:	model_inputs[2][y][x] = 1
+		if legality & 1:	model_inputs[3][y][x] = 1
 
-		if f2 == 1:		features[2][y][x] = 1
-		elif f2 == 2:	features[3][y][x] = 1
+		liberties = value % 4
+		if liberties:		model_inputs[3+liberties][y][x] = 1
 
-		if f3 == 1:		features[4][y][x] = 1
-		elif f3 == 2:	features[5][y][x] = 1
+		if player_to_move == 1:		model_inputs[7] = np.zeros((9, 9), dtype=np.intc)
+		else:						model_inputs[7] = np.ones((9, 9), dtype=np.intc)
 
-		if f4 == 1:		features[6][y][x] = 1
-		elif f4 == 2:	features[7][y][x] = 1
+	policy_target = np.array([int(frame.split()[2])], dtype=np.intc)
+	value_target = np.array([int(frame.split()[3])], dtype=np.intc)
 
-	packed_player = float(frame.split()[1])
-	rules[0] = packed_player
+	return model_inputs, policy_target, value_target
 
-	packed_komi = float(frame.split()[2])
-	rules[1] = packed_komi
-
-	packed_policy = int(frame.split()[3])
-	policy[0] = packed_policy
-
-	packed_territory = frame.split()[4]
-	for i in range(board_size**2):
-		y, x = i // board_size, i % board_size
-		position = _char_to_smallnum_(packed_territory[i])
-		ownership[y][x] = position-1
-
-	packed_score = int(frame.split()[5])
-	score[0] = packed_score
-
-	packed_value = float(frame.split()[6])
-	value[0] = packed_value
-
-	return features, rules, policy, ownership, score, value
-
-def create_training_dataset_from_frames(frames, samples, board_size):
-	features = np.zeros((samples, 8, board_size, board_size), dtype=np.intc)
-	rules = np.zeros((samples, 2), dtype=np.float)
-	policy = np.zeros((samples, 1), dtype=np.intc)
-	ownership = np.zeros((samples, board_size, board_size), dtype=np.intc)
-	score = np.zeros((samples, 1), dtype=np.intc)
-	value = np.zeros((samples, 1), dtype=np.intc)
+def create_training_dataset_from_frames(frames, samples):
+	model_inputs = np.zeros((samples, 8, 9, 9), dtype=np.intc)
+	policy_targets = np.zeros((samples, 1), dtype=np.intc)
+	value_targets = np.zeros((samples, 1), dtype=np.intc)
 
 	for s in range(samples):
-		features[s], rules[s], policy[s], ownership[s], score[s], value[s] = string_frame_to_training_frame(frames[int(random()*len(frames))], board_size)
-
-		if s % 1024 == 0:
-			print(s, end=' ')
-	print()
+		model_inputs[s], policy_targets[s], value_targets[s] = stringified_to_training_frame(frames[int(random()*len(frames))])
 
 	# convert features from channels_first to channels_last
-	features = np.moveaxis(features, 1, -1)
+	model_inputs = np.moveaxis(model_inputs, 1, -1)
 
-	return features, rules, policy, ownership, score, value
+	return model_inputs, policy_targets, value_targets
 
-def game_record_to_training_strings_with_symmetries(gr, history=4):
+def game_info_to_stringified_training_data(info):
 
 	stringified_training_data = []
 
-	feature_history = np.zeros((2*history, gr['boardsize'], gr['boardsize']), dtype=np.intc)
+	player_to_move = 1
+	game = Board(9, 6.5)
+	for target in range(len(info['moves'])):
+		model_inputs = game_state_to_model_inputs(game, player_to_move)
+		policy_target, value_target = game_info_to_model_outputs(info, target)
 
-	player = 1
-	game = Board(gr['boardsize'], gr['komi'])
-	for target in range(len(gr['moves'])):
+		stringified_training_data.append(stringify_inputs_and_targets(model_inputs, policy_target, value_target, player_to_move))
 
-		# 1) generate model inputs and targets from the current state of the game
-		original_rules = game_state_to_model_inputs(feature_history, game, gr['boardsize'], player)
-		original_policy, original_ownership, original_score, original_outcome = game_record_to_model_outputs(gr, gr['moves'], target, gr['boardsize'])
-
-		# 2) enumerate all the symmetries
-		for k in range(4):
-			rotated_features = np.rot90(feature_history, k=k, axes=(-2,-1))
-			rotated_policy = np.rot90(original_policy, k=k, axes=(-2,-1))
-			rotated_ownership = np.rot90(original_ownership, k=k, axes=(-2,-1))
-			stringified_training_data.append(stringify_inputs_and_targets(gr, rotated_features, original_rules, rotated_policy, rotated_ownership, original_score, original_outcome))
-
-			flipped_features = np.flip(rotated_features, axis=-1)
-			flipped_policy = np.flip(rotated_policy, axis=-1)
-			flipped_ownership = np.flip(rotated_ownership, axis=-1)
-			stringified_training_data.append(stringify_inputs_and_targets(gr, flipped_features, original_rules, flipped_policy, flipped_ownership, original_score, original_outcome))
-
-		# 3) advance the game state
-		error_happen = not game.place_stone(_char_to_smallnum_(gr['moves'][target]), player)
+		error_happen = not game.place_stone(_char_to_smallnum_(info['moves'][target]), player_to_move)
 		if error_happen:
 			raise Exception("oh shit, a happening!")
-		player *= -1
+		player_to_move *= -1
 
 	return stringified_training_data
 
@@ -224,23 +173,33 @@ if __name__ == "__main__":
 	games = [x for x in open(filename, 'r').read().split('\n') if len(x)]
 	print(len(games), 'real games loaded')
 
-	with open('test output','w') as fwrite:
+	with open('simple agz training data','w') as fwrite:
 		for g in range(len(games)):
-			for frame in game_record_to_training_strings_with_symmetries(parse_game_record(games[g])):
+			for frame in game_info_to_stringified_training_data(parse_game_record(games[g])):
 				fwrite.write(frame+'\n')
 			print(g)
 	'''
 
-	filename = 'test output'
+
+	filename = 'simple agz training data'
 	frames = [x for x in open(filename, 'r').read().split('\n') if len(x)]
 	print(len(frames), 'training frames loaded')
 
-	model = build_agz_model(4, 32, input_shape=(9, 9, 8))
+	blocks = 6
+	channels = 96
 
-	for e in range(0,128):
-		features, rules, policy, ownership, score, value = create_training_dataset_from_frames(frames, 16384, 9)
-		model.fit([features, rules], [policy, ownership, score, value], batch_size=128, epochs=1, verbose=1)
-		save_model(model, "crappy go model" + str(e) + ".h5", save_format="h5")
+	model = build_agz_model(blocks, channels, input_shape=(9, 9, 8))
+
+	batch_size = 512
+	updates_per_epoch = 500
+	samples = batch_size*updates_per_epoch
+	total_updates = 12500
+	epochs = total_updates // updates_per_epoch
+
+	for e in range(1, epochs+1):
+		model_inputs, policy_targets, value_targets = create_training_dataset_from_frames(frames, samples)
+		model.fit(model_inputs, [policy_targets, value_targets], batch_size=batch_size, epochs=1, verbose=1)
+		save_model(model, "crappy go model b" + str(blocks) + "c" + str(channels) + " " + str(e*updates_per_epoch) + ".h5", save_format="h5")
 
 
 
