@@ -3,7 +3,8 @@ from keras.models import Model
 from keras.layers import Input
 from keras.layers import BatchNormalization, Convolution2D, Activation, Add
 from keras.layers import GlobalAveragePooling2D, Reshape, Dense, Multiply
-from keras.layers import Flatten
+from keras.layers import Flatten, GlobalMaxPooling2D, Concatenate
+from keras.optimizers import Adam
 
 def add_bn_relu_convolve_block(x, filters, kernel_size=(3,3)):
 	x = BatchNormalization()(x)
@@ -19,10 +20,10 @@ def add_squeeze_exite_block(x, filters):
 	x = Multiply()([x, y])
 	return x
 
-def build_agz_model(blocks, filters, input_shape=(9, 9, 4)):
+def build_agz_model(blocks, filters, input_shape):
 
 	game_input = Input(shape=input_shape)
-	meta_input = Input(shape=(1))
+	meta_input = Input(shape=(2))
 
 	# start by projecting the input into the space we'll need for residual connections
 	game_projection = Convolution2D(filters=filters, kernel_size=(5,5), padding='same')(game_input)
@@ -50,19 +51,25 @@ def build_agz_model(blocks, filters, input_shape=(9, 9, 4)):
 	ownership = Reshape((input_shape[0], input_shape[1]))(ownership)
 	ownership = Activation('tanh', name='ownership')(ownership)
 
-	value = GlobalAveragePooling2D()(value_head)
-	value = Dense(filters, 'relu')(value)
-	value = Dense(1, activation='tanh', name='value')(value)
+	scoring_and_outcome_gap = GlobalAveragePooling2D()(value_head)
+	scoring_and_outcome_gmp = GlobalMaxPooling2D()(value_head)
+	scoring_and_outcome = Concatenate()([scoring_and_outcome_gap, scoring_and_outcome_gmp])
 
-	model = Model([game_input, meta_input], [policy, ownership, value])
+	final_score = Dense(2*input_shape[0]*input_shape[1], activation='softmax', name='score')(scoring_and_outcome)
+
+	value = Dense(1, activation='tanh', name='value')(scoring_and_outcome)
+
+	model = Model([game_input, meta_input], [policy, ownership, final_score, value])
 	model.compile(
-		loss={'policy': 'categorical_crossentropy',
+		loss={'policy': 'sparse_categorical_crossentropy',
 			  'ownership': 'mse',
+			  'score': 'sparse_categorical_crossentropy',
 			  'value': 'mse'},
 		loss_weights={'policy': 1.0,
 					  'ownership': 0.02,
+					  'score': 0.02,
 					  'value': 1.0},
-		optimizer='adam'
+		optimizer=Adam(lr=0.0001)
 	)
 	model.summary()
 
