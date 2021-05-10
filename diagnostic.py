@@ -6,7 +6,7 @@ from tkinter import *
 from copy import deepcopy
 
 from datasets import *
-from datasets import _char_to_9x9_
+from datasets import _char_to_smallnum_
 
 WIDTH = 450
 HEIGHT = 450
@@ -101,7 +101,7 @@ class display(Frame):
 		self.frame_stack.append((deepcopy(board), -1))
 		self.frame = len(self.frame_stack) - 1
 		for j in game:
-			move = _char_to_9x9_(j)
+			move = _char_to_smallnum_(j)
 
 			if not board.place_stone(move, player):
 				print('error:',player, move, len(self.frame_stack))

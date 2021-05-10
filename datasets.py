@@ -1,4 +1,20 @@
 
+'''
+we need functions to support:
+	training
+		creation of training frames from game records
+			convert game state to training io
+			stringify training io
+		loading of training frames from stringified frames
+
+	inference
+
+'''
+
+
+
+
+
 import numpy as np
 from numpy.random import random
 
@@ -7,10 +23,10 @@ from model import build_agz_model
 
 from keras.models import save_model
 
-def _9x9_to_char_(m):
+def _smallnum_to_char_(m):
 	return chr(40+m)
 
-def _char_to_9x9_(m):
+def _char_to_smallnum_(m):
 	return ord(m)-40
 
 def parse_game_record(game_record):
@@ -23,33 +39,6 @@ def parse_game_record(game_record):
 		'score': float(game_record.split()[5]),
 		'outcome': float(game_record.split()[6])
 	}
-
-def recreate_random_game_state(game_records, board_size):
-
-	tries = 0
-	target = 0
-	moves = [_9x9_to_char_(board_size**2)]
-	game_as_dict = {}
-	while _char_to_9x9_(moves[target]) == board_size**2:
-		game_as_dict = parse_game_record(game_records[int(random() * len(game_records))])
-		moves = game_as_dict['moves']
-		target = int(random() * len(moves))
-
-		tries += 1
-		if tries >= 100:
-			raise Exception("there seems to be something seriously wrong with your game dataset")
-
-	game = Board(board_size)
-	player = 1
-	warmup = moves[:target]
-	for m in warmup:
-		move = _char_to_9x9_(m)
-		error_happen = not game.place_stone(move, player)
-		if error_happen:
-			raise Exception("oh shit, a happening!")
-		player *= -1
-
-	return game_as_dict, game, moves, target, player
 
 def game_state_to_model_inputs(game, board_size, player):
 
@@ -91,7 +80,7 @@ def game_record_to_model_outputs(game_as_dict, moves, target, player, board_size
 	ownership = np.zeros((board_size, board_size), dtype=np.intc)
 	value = np.zeros(1, dtype=np.float)
 
-	move_value = _char_to_9x9_(moves[target])
+	move_value = _char_to_smallnum_(moves[target])
 	if move_value < board_size**2:
 		y, x = move_value // board_size, move_value % board_size
 		policy[y][x] = 1
@@ -122,47 +111,6 @@ def game_record_to_model_outputs(game_as_dict, moves, target, player, board_size
 
 	return policy, ownership, value
 
-def create_training_dataset(game_records, samples, board_size):
-	features = np.zeros((samples, 4, board_size, board_size), dtype=np.intc)
-	rules = np.zeros((samples, 1), dtype=np.float)
-	policy = np.zeros((samples, board_size * board_size), dtype=np.intc)
-	ownership = np.zeros((samples, board_size, board_size), dtype=np.intc)
-	value = np.zeros((samples, 1), dtype=np.intc)
-
-	for s in range(samples):
-		# select and recreate a random game state
-		game_as_dict, game, moves, target, player = recreate_random_game_state(game_records, board_size)
-		instance_features, instance_rules = game_state_to_model_inputs(game, board_size, player)
-		instance_policy, instance_ownership, instance_value = game_record_to_model_outputs(game_as_dict, moves, target, player, board_size)
-
-		# for data augmentation, select a random rotation
-		k = int(random()*4)
-		instance_features = np.rot90(instance_features, k=k, axes=(-2,-1))
-		instance_policy = np.rot90(instance_policy, k=k, axes=(-2,-1))
-		instance_ownership = np.rot90(instance_ownership, k=k, axes=(-2,-1))
-
-		# for data augmentation, choose whether to flip the board
-		f = int(random()*2)
-		if f:
-			instance_features = np.flip(instance_features, axis=-1)
-			instance_policy = np.flip(instance_policy, axis=-1)
-			instance_ownership = np.flip(instance_ownership, axis=-1)
-
-		features[s] = instance_features
-		rules[s] = instance_rules
-		policy[s] = np.reshape(instance_policy, board_size**2)
-		ownership[s] = instance_ownership
-		value[s] = instance_value
-
-		if s % 100 == 0:
-			print(s, end=' ')
-	print()
-
-	# convert features from channels_first to channels_last
-	features = np.moveaxis(features, 1, -1)
-
-	return features, rules, policy, ownership, value
-
 def stringify_inputs_and_targets(meta_data, player, features, rules, policy, ownership, value):
 	state = []
 	for r in range(meta_data['boardsize']):
@@ -173,7 +121,7 @@ def stringify_inputs_and_targets(meta_data, player, features, rules, policy, own
 			f4 = features[3][r][c]
 			p1 = policy[r][c]
 			o1 = 1 if ownership[r][c] == 1 else 0
-			state.append(_9x9_to_char_((f1<<5) + (f2<<4) + (f3<<3) + (f4<<2) + (p1<<1) + o1))
+			state.append(_smallnum_to_char_((f1 << 5) + (f2 << 4) + (f3 << 3) + (f4 << 2) + (p1 << 1) + o1))
 	return ''.join(state) + ' ' + str(player) + ' ' + str(15*rules[0]) + ' ' + str(value[0]) + ' ' + str(meta_data['score'])
 
 def string_frame_to_training_frame(frame, board_size):
@@ -186,12 +134,12 @@ def string_frame_to_training_frame(frame, board_size):
 	packed_boards = frame.split()[0]
 	for i in range(board_size**2):
 		y, x = i // board_size, i % board_size
-		features[0][y][x] = 1 if _char_to_9x9_(packed_boards[i]) & 1<<5 else 0
-		features[1][y][x] = 1 if _char_to_9x9_(packed_boards[i]) & 1<<4 else 0
-		features[2][y][x] = 1 if _char_to_9x9_(packed_boards[i]) & 1<<3 else 0
-		features[3][y][x] = 1 if _char_to_9x9_(packed_boards[i]) & 1<<2 else 0
-		policy[y*board_size + x] = 1 if _char_to_9x9_(packed_boards[i]) & 1<<1 else 0
-		ownership[y][x] = 1 if _char_to_9x9_(packed_boards[i]) & 1 else -1
+		features[0][y][x] = 1 if _char_to_smallnum_(packed_boards[i]) & 1 << 5 else 0
+		features[1][y][x] = 1 if _char_to_smallnum_(packed_boards[i]) & 1 << 4 else 0
+		features[2][y][x] = 1 if _char_to_smallnum_(packed_boards[i]) & 1 << 3 else 0
+		features[3][y][x] = 1 if _char_to_smallnum_(packed_boards[i]) & 1 << 2 else 0
+		policy[y*board_size + x] = 1 if _char_to_smallnum_(packed_boards[i]) & 1 << 1 else 0
+		ownership[y][x] = 1 if _char_to_smallnum_(packed_boards[i]) & 1 else -1
 
 	return features, rules, policy, ownership, value
 
@@ -240,7 +188,7 @@ def game_record_to_training_strings_with_symmetries(gr):
 			stringified_training_data.append(stringify_inputs_and_targets(gr, player, flipped_features, instance_rules, flipped_policy, flipped_ownership, instance_value))
 
 		# 3) advance the game state
-		error_happen = not game.place_stone(_char_to_9x9_(gr['moves'][target]), player)
+		error_happen = not game.place_stone(_char_to_smallnum_(gr['moves'][target]), player)
 		if error_happen:
 			raise Exception("oh shit, a happening!")
 		player *= -1
