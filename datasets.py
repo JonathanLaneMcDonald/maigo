@@ -1,5 +1,6 @@
 
 import numpy as np
+import time
 from numpy.random import random
 
 from board import Board
@@ -22,6 +23,17 @@ def parse_game_record(game_record):
 		'ownership': game_record.split()[4],
 		'score': float(game_record.split()[5]),
 		'outcome': float(game_record.split()[6])
+	}
+
+def create_game_record(board_size, komi, moves, ownership, score, outcome):
+	return {
+		'timestamp': int(time.time()),
+		'boardsize': board_size,
+		'komi': komi,
+		'moves': moves,
+		'ownership': ownership,
+		'score': score,
+		'outcome': outcome
 	}
 
 def game_state_to_model_inputs(game, player_to_move):

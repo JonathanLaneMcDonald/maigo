@@ -15,7 +15,7 @@ class Board:
 			self.group_liberties = set()
 			self.adjacent_groups = set()
 
-	def __init__(self, side, komi=6.5):
+	def __init__(self, side=9, komi=6.5):
 
 		self.side = side
 		self.area = side**2
@@ -157,9 +157,9 @@ class Board:
 
 	def get_sensible_moves_for_player(self, player):
 		if player == 1:
-			return {x for x in range(self.area) if self.legal_for_black[x] == 1 and (self.legal_for_white[x] == 1 or self.move_is_suicide_for_player(x, -1))}
+			return {x for x in range(self.area) if self.legal_for_black[x] == 1 and (self.legal_for_white[x] == 1 or self.move_is_suicide_for_player(x, -1))}.union({self.area})
 		if player == -1:
-			return {x for x in range(self.area) if self.legal_for_white[x] == 1 and (self.legal_for_black[x] == 1 or self.move_is_suicide_for_player(x, 1))}
+			return {x for x in range(self.area) if self.legal_for_white[x] == 1 and (self.legal_for_black[x] == 1 or self.move_is_suicide_for_player(x, 1))}.union({self.area})
 
 	def move_is_suicide_for_player(self, position, player):
 

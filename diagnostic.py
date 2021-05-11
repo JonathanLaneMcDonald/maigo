@@ -1,6 +1,7 @@
 
 from keras.models import load_model
 from board import Board
+from model import build_agz_model
 
 from tkinter import *
 from copy import deepcopy
@@ -35,7 +36,7 @@ class display(Frame):
 			policy, value = self.model.predict(model_inputs)
 			model_inputs = np.moveaxis(model_inputs, -1, 1)[0]
 			policy /= np.amax(policy)
-			policy = np.reshape(np.array(policy[0][:-1]), (self.edge, self.edge))
+			policy = np.reshape(np.array(policy[0]), (self.edge, self.edge))
 			value = value[0]
 
 			print('player to move:', player_to_move, 'value of position:', value)
@@ -175,7 +176,8 @@ class display(Frame):
 
 		self.bind_all('<KeyPress>', self.keyboard)
 
-		self.model = load_model('crappy go model b4c32 4500.h5')
+		#self.model = load_model('crappy go model b4c32 4500.h5')
+		self.model = build_agz_model(4, 32, (9, 9, 8))
 		self.channel_selection = 0
 
 		self.redraw_and_clear()
