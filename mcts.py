@@ -31,6 +31,9 @@ class MCTS:
 		# set up game root
 		self.expand(self.game_root)
 
+	def get_final_score(self):
+		return self.play_root.game_state.get_simple_terminal_score_and_ownership()
+
 	def display(self):
 		return self.play_root.game_state.display(self.play_root.completed_move)
 
@@ -47,12 +50,23 @@ class MCTS:
 			return False
 
 	def get_weighted_random_move_from_top_k(self, k=3):
-		simulations_per_move = [(child.simulations, move) for move, child in self.play_root.children.items()]
-		options = sorted(simulations_per_move)[-k:]
-		simulation_total = sum([simulations for simulations, move in options])
-		moves = [move for simulations, move in options]
-		move_weights = [simulations/simulation_total for simulations, move in options]
-		return choice(moves, p=move_weights)
+		moves_at_simulation_count = {}
+		for child in self.play_root.children.values():
+			if child.simulations not in moves_at_simulation_count:
+				moves_at_simulation_count[child.simulations] = []
+			moves_at_simulation_count[child.simulations].append(child.completed_move)
+
+		inverse_sorted_by_simulation_count = list(reversed(sorted(moves_at_simulation_count.items())))
+
+		moves_under_consideration = []
+		for simulations, moves in inverse_sorted_by_simulation_count:
+			if len(moves_under_consideration) < k:
+				moves_under_consideration += [(simulations, x) for x in moves]
+
+		moves = [mv for sims, mv in moves_under_consideration]
+		weights = np.array([sims for sims, mv in moves_under_consideration])
+
+		return choice(moves, p=weights/sum(weights))
 
 	def calculate_selection_score(self, child, sqrt_total_sims):
 		if child.completed_move == 81:
@@ -70,6 +84,9 @@ class MCTS:
 		return sorted_children[-1][-1]
 
 	def simulate(self, searches=1):
+		if searches == -1:
+			searches = len(self.play_root.children)
+
 		for s in range(searches):
 			walker = self.play_root
 			while walker.children != {}:

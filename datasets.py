@@ -14,6 +14,9 @@ def _smallnum_to_char_(m):
 def _char_to_smallnum_(m):
 	return ord(m)-40
 
+def stringify_game_record(gr):
+	return str(gr['timestamp']) + ' ' + str(gr['boardsize']) + ' ' + str(gr['komi']) + ' ' + gr['moves'] + ' ' + gr['ownership'] + ' ' + str(gr['score']) + ' ' + str(gr['outcome'])
+
 def parse_game_record(game_record):
 	return {
 		'timestamp': int(game_record.split()[0]),
