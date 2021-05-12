@@ -8,15 +8,13 @@ concrete example of my problem:
 			running up and down their respective trees,
 			identifying nodes that need expanding,
 			converting the game state to a model input,
-			submitting (model_input, owning_node) to the batch_processing_queue
+			submitting (model_input, queue_of_originating_mcts_instance, ref_to_originating_leaf) to the batch_processing_queue
 	2) i want this batch_processing_queue to:
 		check to see if the queue is a certain size (16? 32? 64?) or if a certain amount of time has passed (1ms? 10ms?),
 		prepare an input matrix of an appropriate size, fill it with things off the queue, correlating the owning node with the input,
 		do inference, correlate the results with the owning nodes,
-		submit the (policy_target, value_target, owning_node) back to another queue for completed jobs
-	3) there should be maybe 2 workers on the completed queueueueue who's job it is to run the result back up the tree
-
-
+		submit the (policy_target, value_target, owning_node) back to the queue of the originating mcts instance
+	3) the workers on the mcts tree will prioritize items from their results queues and will only return to the simulation step when the result queue is empty
 '''
 
 
