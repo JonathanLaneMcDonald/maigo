@@ -38,7 +38,7 @@ for g in range(games):
 	while game_in_progress:
 		print('Player to move:', 'black' if mcts.get_player_to_move() == 1 else 'white')
 		mcts.simulate(-1)
-		move = mcts.get_weighted_random_move_from_top_k(max(1, 9-len(moves)))
+		move = mcts.get_weighted_random_move_from_top_k(3 if len(moves) < 27 else 1)
 		moves.append(move)
 		mcts.commit_to_move(move)
 		print('moves to date:', len(moves), moves)

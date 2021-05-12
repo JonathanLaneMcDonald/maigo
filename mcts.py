@@ -115,9 +115,9 @@ class MCTS:
 		self.backup(node, value)
 
 	def backup(self, node, value):
-		node.value_score += node.player_to_move * value
+		node.value_score += -node.player_to_move * value
 		node.simulations += 1
-		if node.parent != None:
+		if node != self.game_root and node.parent != self.play_root:
 			self.backup(node.parent, value)
 
 
