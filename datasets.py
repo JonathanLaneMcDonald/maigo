@@ -196,26 +196,17 @@ if __name__ == "__main__":
 	'''
 
 
-	filename = 'simple agz training data'
-	frames = [x for x in open(filename, 'r').read().split('\n') if len(x)]
-	print(len(frames), 'training frames loaded')
-
-	blocks = 6
-	channels = 96
+	blocks = 4
+	channels = 32
 
 	model = build_agz_model(blocks, channels, input_shape=(9, 9, 8))
 
-	batch_size = 512
-	updates_per_epoch = 500
-	samples = batch_size*updates_per_epoch
-	total_updates = 12500
-	epochs = total_updates // updates_per_epoch
-
-	for e in range(1, epochs+1):
-		model_inputs, policy_targets, value_targets = create_training_dataset_from_frames(frames, samples)
-		model.fit(model_inputs, [policy_targets, value_targets], batch_size=batch_size, epochs=1, verbose=1)
-		save_model(model, "crappy go model b" + str(blocks) + "c" + str(channels) + " " + str(e*updates_per_epoch) + ".h5", save_format="h5")
-
+	step = 32
+	start_time = time.time()
+	for e in range(0,50000,step):
+		model.predict(np.zeros((step,9,9,8)))
+		if e % 128 == 0:
+			print(e, e/(time.time()-start_time))
 
 
 
