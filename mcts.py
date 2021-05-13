@@ -1,6 +1,6 @@
 
 import numpy as np
-from numpy.random import choice
+from numpy.random import choice, random
 from copy import deepcopy
 from datasets import game_state_to_model_inputs
 
@@ -123,7 +123,7 @@ class MCTS:
 		return policy[0], value[0][0]
 
 	def dandy_inference_wrapper(self, node):
-		return np.zeros(82) + 0.5, 0
+		return random(82), random()
 
 	def evaluate_node(self, node):
 
