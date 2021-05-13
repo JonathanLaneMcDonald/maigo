@@ -36,11 +36,12 @@ for g in range(games):
 	mcts = MCTS(game, model=model)
 	game_in_progress = True
 	while game_in_progress:
-		print('Player to move:', 'black' if mcts.get_player_to_move() == 1 else 'white', 'Nodes:', mcts.get_node_count())
-		mcts.simulate(27)
+		print('Player to move:', 'black' if mcts.get_player_to_move() == 1 else 'white', ', Nodes:', mcts.get_node_count())
+		mcts.simulate()
 		move = mcts.get_weighted_random_move_from_top_k(3 if len(moves) < 27 else 1)
 		moves.append(move)
-		mcts.commit_to_move(move)
+		if not mcts.commit_to_move(move):
+			raise Exception("error executing move")
 		print('moves to date:', len(moves), moves)
 		print(mcts.display())
 		print()
