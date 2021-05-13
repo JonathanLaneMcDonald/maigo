@@ -28,8 +28,15 @@ class MCTS:
 		self.play_root = self.game_root
 		self.model = model
 
+		# working toward facilitating multiprocess communication - can't send objects, so i'll send unique identifiers
+		self.lut = {0:self.game_root}
+		self.rlut = {self.game_root:0}
+
 		# set up game root
 		self.expand(self.game_root)
+
+	def get_node_count(self):
+		return len(self.lut)
 
 	def get_final_score(self):
 		return self.play_root.game_state.get_simple_terminal_score_and_ownership()
@@ -111,6 +118,8 @@ class MCTS:
 			new_game = deepcopy(node.game_state)
 			new_game.place_stone(move, node.player_to_move)
 			node.children[move] = MCTS.Node(new_game, move, -node.player_to_move, policy[move], node)
+			self.lut[len(self.lut)] = node.children[move]
+			self.rlut[node.children[move]] = len(self.lut)-1
 
 		self.backup(node, value)
 

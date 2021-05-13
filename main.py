@@ -36,8 +36,8 @@ for g in range(games):
 	mcts = MCTS(game, model=model)
 	game_in_progress = True
 	while game_in_progress:
-		print('Player to move:', 'black' if mcts.get_player_to_move() == 1 else 'white')
-		mcts.simulate(-1)
+		print('Player to move:', 'black' if mcts.get_player_to_move() == 1 else 'white', 'Nodes:', mcts.get_node_count())
+		mcts.simulate(27)
 		move = mcts.get_weighted_random_move_from_top_k(3 if len(moves) < 27 else 1)
 		moves.append(move)
 		mcts.commit_to_move(move)
