@@ -1,5 +1,26 @@
 
 TODO
+	Speed Improvements in game simulator:
+		Problem: I get to late in a game and slow down because floodfill is going all over the whole board over and over
+		Solution: Start tracking eyes and pass-alive groups -- groups where 2 or more liberties have group_id at NSEW
+			With this solution, if I'm part of a pass-alive group, I know there won't be capture-related consequences
+			So I can skip a lot of calculation
+	Reducing incomplete simulations:
+		Problem: I have lots of incomplete simulations and that might be leading to suboptimal move selection when sim counts are low
+		Solution: Put in a mechanism to wait until simulations are finished? Use a Pipe() or something if it's faster than a SimpleQueue? Rewrite in Java? lol
+			realistically, i'll probably just suck it up and do a larger number of searches in the python version
+	Parallel gameplay:
+		not really a problem here. the way things are set up, i think the model will keep up with a large number of workers
+		I just played through 86 games in 15.1 seconds per game @ max(9, 81-len(moves)) searches per move
+		so i think i can get a near linear speedup with up to 10-20 workers... so i may be able to net around 1 game per second
+	Model updates:
+		i need to figure out how to do live updates while all this inference is going on
+		Maybe I'll keep a replay manager in the ModelManager and I'll put in a second pipe for real games and training frames
+		Then each worker can prep and send the game and training frames after completing a game
+		Then every kth game in the replay buffer, I can do a model update... maybe once every 100 games or so I can do an update with a single batch of like 2048?
+		anyway, live updates...
+
+TODO
 	1) create a proper dataset with all states/symmetries pre-calculated
 		once i do my testing and am sure that my matrix stuff is correct and my model stuff is correct,
 		then i can export my training data to a model-specific format,
