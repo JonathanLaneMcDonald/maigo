@@ -196,12 +196,12 @@ if __name__ == "__main__":
 	'''
 
 
-	blocks = 4
-	channels = 32
+	blocks = 6
+	channels = 96
 
 	model = build_agz_model(blocks, channels, input_shape=(9, 9, 8))
 
-	step = 32
+	step = 128
 	start_time = time.time()
 	for e in range(0,50000,step):
 		model.predict(np.zeros((step,9,9,8)))

@@ -1,45 +1,40 @@
 
-import time
-from multiprocessing import Process, Queue
+from model import build_agz_model
 
 import numpy as np
 
 class ModelManager:
-	def __init__(self, model, batch_size, max_cooldown=0.001):
-		self.model = model
-		self.batch_size = batch_size
-		self.last_batch_time = time.time()
-		self.max_cooldown = max_cooldown
-		self.queue = Queue()
+	def __init__(self, resnet_bc, tasks_to_model_queue, results_to_mcts_queue_array, max_batch_size=128):
 
-		self.process = Process(target=self.monitor, args=())
-		self.process.daemon = True
-		self.process.start()
+		blocks, channels = resnet_bc
+		self.model = build_agz_model(blocks, channels, (9, 9, 8))
 
-	def get_queue(self):
-		return self.queue
+		self.tasks_to_model = tasks_to_model_queue
+		self.results_to_mcts = results_to_mcts_queue_array
+		self.max_batch_size = max_batch_size
+
+		self.monitor()
 
 	def monitor(self):
+		print("ModelManager is entering monitoring loop")
 		while True:
-			if self.queue.qsize() >= self.batch_size or (not self.queue.empty() and time.time()-self.last_batch_time >= self.max_cooldown):
-				self.last_batch_time = time.time()
+			if not self.tasks_to_model.empty():
 
-				current_batch_size = min(self.batch_size, self.queue.qsize())
+				originator_random_number = []
+				originating_processes = []
+				originating_nodes = []
+				inference_tasks = []
+				while not self.tasks_to_model.empty() and len(originating_processes) < self.max_batch_size:
+					random_number, originating_process, originating_node, inference_task = self.tasks_to_model.get()
 
-				originator_info = {} # expecting {'model inputs', 'originator queue', 'originating node'}
-				batch_model_inputs = np.zeros((current_batch_size, 8, 9, 9), dtype=np.intc)
-				for i in range(current_batch_size):
-					originator_info[i] = self.queue.get()
-					batch_model_inputs[i] = originator_info['model inputs']
+					originator_random_number.append(random_number)
+					originating_processes.append(originating_process)
+					originating_nodes.append(originating_node)
+					inference_tasks.append(inference_task)
 
-				policy_targets, value_targets = self.model.predict(np.moveaxis(batch_model_inputs, 1, -1))
+				print("ModelManager pulled", len(originating_processes),"states off the queue")
 
-				for i in range(current_batch_size):
-					originator_info[i]['originator queue'].put(
-						{
-							'policy': policy_targets[i],
-							'value': value_targets[i],
-							'node': originator_info[i]['originating node']
-						}
-					)
+				policy_targets, value_targets = self.model.predict(np.moveaxis(np.array(inference_tasks), 1, -1))
 
+				for i in range(len(originating_processes)):
+					self.results_to_mcts[originating_processes[i]].put((originator_random_number[i], originating_nodes[i], policy_targets[i], value_targets[i]))
