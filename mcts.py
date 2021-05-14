@@ -71,7 +71,10 @@ class MCTS:
 
 	def get_weighted_random_move_from_top_k(self, k=3):
 
-		self.flush_results_queue()
+		while sum(self.play_root.child_outstanding_sims):
+			self.flush_results_queue()
+
+		print("Outstanding Sims:", self.get_outstanding_sims())
 
 		moves_at_simulation_count = {}
 		for move in [x for x in range(82) if self.play_root.child_legality[x]]:
