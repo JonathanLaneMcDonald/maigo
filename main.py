@@ -41,7 +41,7 @@ if __name__ == "__main__":
 		mcts = MCTS(game, 0, queue_to_model, queue_from_model)
 		game_in_progress = True
 		while game_in_progress:
-			mcts.simulate()
+			mcts.simulate(min_searches=9)
 
 			player_to_move = 'Player to move: black' if mcts.get_player_to_move() == 1 else 'Player to move: white'
 			nodes_in_graph = ', Nodes:' + str(mcts.get_node_count())
