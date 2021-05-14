@@ -4,10 +4,10 @@ from model_manager import ModelManager
 def do_the_thing(to_model, from_model):
 	# probably pretty dumb to just construct the thing and never do anything like own or join the process...
 	# just trying to get the thing working for now ;D
-	model_manager = ModelManager((6, 96), to_model, from_model)
+	model_manager = ModelManager((4, 32), to_model, from_model)
 
 if __name__ == "__main__":
-	from multiprocessing import Queue, Process
+	from multiprocessing import SimpleQueue, Process
 
 	import time
 	from datasets import _smallnum_to_char_, create_game_record, stringify_game_record, game_info_to_stringified_training_data, create_training_dataset_from_frames
@@ -27,8 +27,8 @@ if __name__ == "__main__":
 	training_frames = [x for x in open('9x9 training frames','r').read().split('\n') if len(x)]
 	training_frames_writer = open('9x9 training frames','a')
 
-	queue_to_model = Queue()
-	queue_from_model = Queue()
+	queue_to_model = SimpleQueue()
+	queue_from_model = SimpleQueue()
 
 	process = Process(target=do_the_thing, args=(queue_to_model, [queue_from_model]))
 	process.start()
@@ -41,9 +41,17 @@ if __name__ == "__main__":
 		mcts = MCTS(game, 0, queue_to_model, queue_from_model)
 		game_in_progress = True
 		while game_in_progress:
-			print('Player to move:', 'black' if mcts.get_player_to_move() == 1 else 'white', ', Nodes:', mcts.get_node_count())
-			mcts.simulate(81)
-			move = mcts.get_weighted_random_move_from_top_k(3 if len(moves) < 27 else 1)
+			mcts.simulate()
+
+			player_to_move = 'Player to move: black' if mcts.get_player_to_move() == 1 else 'Player to move: white'
+			nodes_in_graph = ', Nodes:' + str(mcts.get_node_count())
+			observable_sims= ', Observable Sims:' + str(mcts.get_outstanding_sims())
+			k = 9 if len(moves) < 9 else 3 if len(moves) < 27 else 1
+			top_k = ', top_k:' + str(k)
+			value_at_play_root = ', Current Value:' + str(mcts.get_value_at_play_root())
+
+			print(player_to_move + nodes_in_graph + observable_sims + top_k + value_at_play_root)
+			move = mcts.get_weighted_random_move_from_top_k(k)
 			moves.append(move)
 			if not mcts.commit_to_move(move):
 				raise Exception("error executing move")

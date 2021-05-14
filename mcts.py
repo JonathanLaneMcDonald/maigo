@@ -1,4 +1,5 @@
 
+import time
 import numpy as np
 from numpy.random import choice, random
 from copy import deepcopy
@@ -38,6 +39,15 @@ class MCTS:
 		# set up game root
 		self.forward_state_for_inference(self.game_root)
 
+	def get_outstanding_sims(self):
+		return sum(self.play_root.child_outstanding_sims)
+
+	def get_value_at_play_root(self):
+		if self.play_root == self.game_root:
+			return 'zero'
+		else:
+			return self.play_root.parent.child_value[self.play_root.completed_move]
+
 	def get_node_count(self):
 		return len(self.node_lut)
 
@@ -65,9 +75,10 @@ class MCTS:
 
 		moves_at_simulation_count = {}
 		for move in [x for x in range(82) if self.play_root.child_legality[x]]:
-			if self.play_root.child_subtree_sims[move] not in moves_at_simulation_count:
-				moves_at_simulation_count[self.play_root.child_subtree_sims[move]] = []
-			moves_at_simulation_count[self.play_root.child_subtree_sims[move]].append(move)
+			total_sims = self.play_root.child_subtree_sims[move] + self.play_root.child_outstanding_sims[move]
+			if total_sims not in moves_at_simulation_count:
+				moves_at_simulation_count[total_sims] = []
+			moves_at_simulation_count[total_sims].append(move)
 
 		inverse_sorted_by_simulation_count = list(reversed(sorted(moves_at_simulation_count.items())))
 
@@ -106,9 +117,9 @@ class MCTS:
 		while not self.results_from_model.empty():
 			self.pull_and_apply_prediction()
 
-	def simulate(self, searches=-1):
+	def simulate(self, min_searches=9, searches=-1):
 		if searches == -1:
-			searches = sum(self.play_root.child_legality)
+			searches = max(min_searches, sum(self.play_root.child_legality))
 
 		for s in range(searches):
 
@@ -140,30 +151,34 @@ class MCTS:
 		for move in node.game_state.get_sensible_moves_for_player(node.player_to_move):
 			node.child_legality[move] = 1
 
-		self.tasks_to_model.put((self.random_number, self.process_id, self.node_rlut[node], self.state_to_model_inputs(node)))
+		self.tasks_to_model.put((self.random_number, self.process_id, self.node_rlut[node], self.node_rlut[self.play_root], self.state_to_model_inputs(node)))
 
 	def pull_and_apply_prediction(self):
 
 		if self.results_from_model.empty():
 			raise Exception("how did i get here if the queue is empty?")
 
-		random_id, node_id, policy, value = self.results_from_model.get()
+		random_id, node_id, parent_id, policy, value = self.results_from_model.get()
 
 		if self.random_number == random_id:
+			#print("received result for node", node_id, "parent", parent_id)
 			node = self.node_lut[node_id]
+			originating_ancestor = self.node_lut[parent_id]
 			for move in node.game_state.get_sensible_moves_for_player(node.player_to_move):
 				node.child_legality[move] = 1
 				node.child_policy[move] = policy[move]
 
-			self.backup(node, value)
+			self.backup(node, originating_ancestor, value)
+		else:
+			print("found a stale result (probably from an old game)", self.random_number, "!=", random_id)
 
-	def backup(self, node, value):
+	def backup(self, node, originating_ancestor, value):
 		# "value" is the likelihood that black wins. account for this when selecting nodes in search
-		if node != self.game_root and node.parent != self.play_root:
+		if node != originating_ancestor:
 			node.parent.child_value[node.completed_move] += value
 			node.parent.child_subtree_sims[node.completed_move] += 1
 			node.parent.child_outstanding_sims[node.completed_move] -= 1
-			self.backup(node.parent, value)
+			self.backup(node.parent, originating_ancestor, value)
 
 	def expand_and_evaluate(self, node, next_move):
 

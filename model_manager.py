@@ -23,18 +23,21 @@ class ModelManager:
 				originator_random_number = []
 				originating_processes = []
 				originating_nodes = []
+				originating_parents = []
 				inference_tasks = []
-				while not self.tasks_to_model.empty() and len(originating_processes) < self.max_batch_size:
-					random_number, originating_process, originating_node, inference_task = self.tasks_to_model.get()
+				while not self.tasks_to_model.empty():
+					random_number, originating_process, originating_node, parent, inference_task = self.tasks_to_model.get()
 
 					originator_random_number.append(random_number)
 					originating_processes.append(originating_process)
 					originating_nodes.append(originating_node)
+					originating_parents.append(parent)
 					inference_tasks.append(inference_task)
 
-				print("ModelManager pulled", len(originating_processes),"states off the queue")
+				#print("ModelManager pulled", len(originating_processes),"states off the queue")
 
 				policy_targets, value_targets = self.model.predict(np.moveaxis(np.array(inference_tasks), 1, -1))
 
 				for i in range(len(originating_processes)):
-					self.results_to_mcts[originating_processes[i]].put((originator_random_number[i], originating_nodes[i], policy_targets[i], value_targets[i]))
+					#print("placing result on queue", i, "for node", originating_nodes[i])
+					self.results_to_mcts[originating_processes[i]].put((originator_random_number[i], originating_nodes[i], originating_parents[i], policy_targets[i], value_targets[i]))
