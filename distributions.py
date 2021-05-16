@@ -1,10 +1,10 @@
 
 from numpy.random import random
 
-result = [0]*100
+result = {-x:0 for x in range(21)}
 for i in range(1000000):
-	result[int(100*(random()**(1/3)))] += 1
-print('\n'.join([str(x) + ' ' + str(result[x]) for x in range(len(result))]))
+	result[-int(1+20*(1-random()**(1/5)))] += 1
+print('\n'.join([str(x) for x in result.items()]))
 
 
 
