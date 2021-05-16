@@ -149,13 +149,17 @@ def stringified_to_training_frame(frame):
 
 	return model_inputs, policy_target, value_target
 
-def create_training_dataset_from_frames(frames, samples):
+def create_training_dataset_from_frames(frames, samples, distribution=0):
 	model_inputs = np.zeros((samples, 8, 9, 9), dtype=np.intc)
 	policy_targets = np.zeros((samples, 1), dtype=np.intc)
 	value_targets = np.zeros((samples, 1), dtype=np.intc)
 
 	for s in range(samples):
-		model_inputs[s], policy_targets[s], value_targets[s] = stringified_to_training_frame(frames[int(random()*len(frames))])
+		if distribution == 0:
+			model_inputs[s], policy_targets[s], value_targets[s] = stringified_to_training_frame(frames[int(random()*len(frames))])
+		else:
+			frame = frames[-int(1+min(len(frames), distribution) * (1 - random() ** (1 / 3)))]
+			model_inputs[s], policy_targets[s], value_targets[s] = stringified_to_training_frame(frame)
 
 	# convert features from channels_first to channels_last
 	model_inputs = np.moveaxis(model_inputs, 1, -1)
