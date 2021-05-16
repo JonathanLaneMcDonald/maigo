@@ -27,6 +27,7 @@ class MCTS:
 		# set up nodes and model
 		self.game_root = MCTS.Node(game_state, None, 1, None)
 		self.play_root = self.game_root
+		self.deepest_leaf = 0
 
 		self.process_id = process_id
 		self.random_number = int(random()*100_000)
@@ -38,6 +39,9 @@ class MCTS:
 
 		# set up game root
 		self.forward_state_for_inference(self.game_root)
+
+	def get_recursion_depth(self):
+		return self.deepest_leaf
 
 	def get_outstanding_sims(self):
 		return sum(self.play_root.child_outstanding_sims)
@@ -101,7 +105,7 @@ class MCTS:
 
 		Vc = 0 if sims == 0 else value / sims
 		Pc = policy
-		c = 1.0
+		c = 1.5
 
 		return Vc + c*Pc*(sqrt_total_sims/(1+sims))
 
@@ -120,9 +124,11 @@ class MCTS:
 		while not self.results_from_model.empty():
 			self.pull_and_apply_prediction()
 
-	def simulate(self, min_searches=9, searches=-1):
+	def simulate(self, min_searches=9, searches=-1, max_recursion_depth=30):
 		if searches == -1:
 			searches = max(min_searches, sum(self.play_root.child_legality))
+
+		self.deepest_leaf = 0
 
 		for s in range(searches):
 
@@ -131,18 +137,27 @@ class MCTS:
 			walker = self.play_root
 			next_move = self.select_child(walker)
 
+			recurse_depth = 0
+
 			walking = True
 			while walking:
-				# update the unobservables counter
+
 				walker.child_outstanding_sims[next_move] += 1
 
 				if walker.child_nodes[next_move] == None:
+					self.expand_and_evaluate(walker, next_move)
 					walking = False
 				else:
 					walker = walker.child_nodes[next_move]
 					next_move = self.select_child(walker)
 
-			self.expand_and_evaluate(walker, next_move)
+					recurse_depth += 1
+					if recurse_depth >= max_recursion_depth:
+						self.dummy_backup(walker, self.play_root)
+						walking = False
+
+			if self.deepest_leaf < recurse_depth:
+				self.deepest_leaf = recurse_depth
 
 	def state_to_model_inputs(self, node):
 		return game_state_to_model_inputs(node.game_state, node.player_to_move)
@@ -174,6 +189,16 @@ class MCTS:
 			self.backup(node, originating_ancestor, value)
 		else:
 			print("found a stale result (probably from an old game)", self.random_number, "!=", random_id)
+
+	def dummy_backup(self, node, originating_ancestor):
+		'''the max recursion depth has been reached, so we're giving up on recursing farther and '''
+		assert node != self.play_root
+		if node.parent.child_subtree_sims[node.completed_move]:
+			self.backup(node, originating_ancestor, node.parent.child_value[node.completed_move]/node.parent.child_subtree_sims[node.completed_move])
+		else:
+			#raise Exception("surprisingly, we got to the recursion limit on an unsimulated node")
+			print("Reached recursion limit on unsimulated node -- Assigning value of zero")
+			self.backup(node, originating_ancestor, 0)
 
 	def backup(self, node, originating_ancestor, value):
 		# "value" is the likelihood that black wins. account for this when selecting nodes in search
