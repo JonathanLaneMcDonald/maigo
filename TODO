@@ -1,14 +1,66 @@
 
 TODO
+	set up a max_recursion_depth of like maybe 30 or something -- when a node reaches that depth and still isn't a leaf, just "backup" the current node's value
+		this has the following benefits:
+			it clears the outstanding simulation counts
+			it keeps the node from being explored again (anytime soon)
+			and it does both of those things while having a minimal impact on the search score for that node
+	improve simulation efficiency
+		if i'm doing 100 sims/move and ~100 moves/game, then for 100k games, i'll be doing 1 billion sims
+		i have some efficiency issues nearing terminal game state where i'm visiting way too many cells
+		put together a profiler to count cell visits:
+			linearize the visit counter as a function of the number of the move in the game to find the pain points
+			once you've found those pain points, print the visit counter in 2D with () parens around the placed stone
+			i think i have enough info now between liberties and legal moves to get that visit count way down, especially at the end-game
+	training-time move sampling
+		according to ELF, they do a proportional sampling across all moves. i'm happy to do the same
+	symmetries in training
+		the SAI guys said they generate symmetries to keep from getting stuck in local sequences of moves (like leela zero), so i guess symmetries are back :D
+	update frequency
+		the AZ guys said they did about 30:1 games to updates where each update was a batch of 4096, i'm happy to do a batch of 1024 every 10 games (inc. symmetries)
+	early resignation
+		could do early resignation when both players agree on who's going to win with 95% confidence (e.g. x < -0.95 and y >= 0.95)
+		maybe say something like:
+			if the value of this node < -0.95:
+				if the value of the parent's node is > 0.95:
+					then end the game in resignation
+
+Training:
+
+	1) in the beginning, we have no game and an uninitialized model
+
+	2) start by creating a model
+
+	3) initialize the model and a bunch of workers
+
+	4) each worker plays a game, sending frames to the model for inference, playing through games over and over
+
+	5) once games are complete, workers submit the game record and the game frames to a replay manager
+
+	6) when the replay manager has a multiple of 100 games,
+		it creates a training batch of like 2048 positions with a k^1/3 distribution over the last 1_000_000 moves,
+		sends it to the model on a special queue for training,
+		the model is checking this pipe in an infinite loop before checking for inference,
+		when the model finds a training batch in the training queue, it does a single update to the model,
+			saves the current state of the model, and saves a checkpoint every, say, 10_000 games (100 updates)
+		make sure the replays and training frames are flushed to files so we can resume from where we left off...
+		NOTE: a neat thing is now that we're waiting for outstanding results, the games will all sort of automatically pause during training!
+
+		So, based on this, i might be getting an update every 2-5 minutes and a new model checkpoint every couple of hours!
+
+		Super eager to see how the models improve... see if gameplay improves... can't wait :D
+
+
+
+
+
+
+TODO
 	Speed Improvements in game simulator:
 		Problem: I get to late in a game and slow down because floodfill is going all over the whole board over and over
 		Solution: Start tracking eyes and pass-alive groups -- groups where 2 or more liberties have group_id at NSEW
 			With this solution, if I'm part of a pass-alive group, I know there won't be capture-related consequences
 			So I can skip a lot of calculation
-	Reducing incomplete simulations:
-		Problem: I have lots of incomplete simulations and that might be leading to suboptimal move selection when sim counts are low
-		Solution: Put in a mechanism to wait until simulations are finished? Use a Pipe() or something if it's faster than a SimpleQueue? Rewrite in Java? lol
-			realistically, i'll probably just suck it up and do a larger number of searches in the python version
 	Parallel gameplay:
 		not really a problem here. the way things are set up, i think the model will keep up with a large number of workers
 		I just played through 86 games in 15.1 seconds per game @ max(9, 81-len(moves)) searches per move
@@ -19,86 +71,6 @@ TODO
 		Then each worker can prep and send the game and training frames after completing a game
 		Then every kth game in the replay buffer, I can do a model update... maybe once every 100 games or so I can do an update with a single batch of like 2048?
 		anyway, live updates...
-
-TODO
-	1) create a proper dataset with all states/symmetries pre-calculated
-		once i do my testing and am sure that my matrix stuff is correct and my model stuff is correct,
-		then i can export my training data to a model-specific format,
-		for example:
-			i have 6 channels:
-				4	feature planes
-				1	policy plane
-				1	ownership plane
-			plus 2 scalars:
-				1	scalar for komi
-				1	scalar for the game outcome
-			that works out to 6 bits per grid position, plus 2 scalars,
-			so that's basically 81 bytes + a few extra bytes per scalar which is well under 100 bytes per trainable state
-			i basically end up with around 80 records per game at around 90 bytes per record, or roughly 8kB of data per game...
-			so that's 8GB for a million games, which i can hold in memory, no problem... that'll be worth doing... like 10,000x faster to train that way, lol
-	2) diagnostics
-		now i'm feeling the need for some diagnostic stuff. i need to be able to verify that:
-			my matrix manipulations are working
-			my model is learning what it needs to learn
-				(train a model on my 9x9 stuff and modify the interface to display model stuff, including:
-
-TODO
-	: komi schedule:
-		// games are stored as komi \t ','.join(moves)
-		the first 1000 games are played at the default komi of 0.5
-		subsequently,
-			if white wins < 1/3 of the most recent 1000 games, increase komi by 1.0
-			if black wins < 1/3 of the most recent 1000 games, decrease komi by 1.0
-		i think this is the most reasonable way of doing it because it adapts to the play strength of the model
-	: diagnostics:
-		write another interface that lets you look at slices of inputs and outputs for the neural net
-		consider writing an interface that literally displays self-play games as they occur - the process may be slow enough for this ;)
-		i think there's going to be the java version of this in the future where we're generating self-play games much faster - it'll be mesmerising!
-	: get to a point where we're seeing model-driven MCTS
-		i think i like playing a weighted random sample from top_k=3 for the duration of the game
-		two conditions for exiting the tree search and playing to conclusion with simple policy:
-			1) game exceeds move limit (typically set to board area)
-			2) one of the players has a confidence of < -0.95 (2.5%)
-	: training schedule
-		i) i'm happy to generate, say, 16384 games of self-play with a random policy + mcts to seed the pool
-		ii) then do a single update per real game to prep the model
-		iii) then, on an ongoing basis, perform one training update per real game played
-		iv) save a checkpoint every interval of 1024 updates starting with 16384+1024 or whatever it happens to be
-			in other words, save a checkpoint each time the number of real games is a multiple of 1024 or 1000 or whatever
-
-
-self-play/training loop:
-
-	1) load historical games - these do not include symmetries yet
-		* there will be zero of these at first and that's fine
-		* load the current model - again, missing at first
-
-	2) training loop:
-
-		I) using latest model, play a single game of self-play
-
-			* max moves = board area
-				- after max moves, finish the game by doing simple sampling of the policy network
-
-			* searches per move = board area
-				- i want to have one worker running up and down the tree and other workers to encode the state and run the model
-
-		II) game results are stored as the move coords + the outcome (+1/-1 for black/white)
-
-		III) after every single self-play game, do the following:
-
-			1) sample a batch (128? 256?) uniformly across the most recent 2**17 games
-				* calculate symmetries on the fly
-				* from a random state, produce policy and value targets
-
-			2) train on this single batch, resulting in a single update to the model
-
-			3) save the current model with some info
-				* if it's a multiple of like 1000 or something, then save a model checkpoint (including 0/random)
-
-
-
-
 
 
 
