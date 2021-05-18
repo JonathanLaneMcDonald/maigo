@@ -27,7 +27,10 @@ class MCTS:
 		# set up nodes and model
 		self.game_root = MCTS.Node(game_state, None, 1, None)
 		self.play_root = self.game_root
+
+		# these are more diagnostic
 		self.deepest_leaf = 0
+		self.episode_cell_visits = 0
 
 		self.process_id = process_id
 		self.random_number = int(random()*100_000)
@@ -39,6 +42,12 @@ class MCTS:
 
 		# set up game root
 		self.forward_state_for_inference(self.game_root)
+
+	def get_node_cell_visits(self):
+		return self.play_root.game_state.get_cell_visits()
+
+	def get_episode_cell_visits(self):
+		return self.episode_cell_visits
 
 	def get_recursion_depth(self):
 		return self.deepest_leaf
@@ -129,6 +138,7 @@ class MCTS:
 			searches = max(min_searches, sum(self.play_root.child_legality))
 
 		self.deepest_leaf = 0
+		self.episode_cell_visits = 0
 
 		for s in range(searches):
 
@@ -214,6 +224,7 @@ class MCTS:
 		if not new_game.place_stone(next_move, node.player_to_move):
 			raise Exception("error performing move")
 
+		self.episode_cell_visits += new_game.get_cell_visits()
 		node.child_nodes[next_move] = MCTS.Node(new_game, next_move, -node.player_to_move, node)
 
 		self.node_lut[len(self.node_lut)] = node.child_nodes[next_move]

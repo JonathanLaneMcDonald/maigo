@@ -21,14 +21,16 @@ if __name__ == "__main__":
 	process.start()
 
 	start_time = time.time()
-	games = 1000000
+	games = 1
+	diagnostics_total_cell_visits = {}
 	for g in range(games):
 		moves = []
+		visits = []
 		game = Board()
 		mcts = MCTS(game, 0, queue_to_model, queue_from_model)
 		game_in_progress = True
 		while game_in_progress:
-			mcts.simulate(100)
+			mcts.simulate(searches=1)
 
 			player_to_move = 'Player to move: black' if mcts.get_player_to_move() == 1 else 'Player to move: white'
 			nodes_in_graph = ', Nodes:' + str(mcts.get_node_count())
@@ -44,6 +46,19 @@ if __name__ == "__main__":
 			if not mcts.commit_to_move(move):
 				raise Exception("error executing move")
 			print('moves to date:', len(moves), moves)
+
+			visits.append(sum(mcts.get_episode_cell_visits()))
+			print('visits/move:', len(visits), visits)
+
+			bored = mcts.get_node_cell_visits()
+			for r in range(9):
+				for c in range(9):
+					if bored[r*9+c]:
+						print(bored[r*9+c],end='\t')
+					else:
+						print('.',end='\t')
+				print()
+
 			print(mcts.display())
 			print()
 
@@ -61,4 +76,8 @@ if __name__ == "__main__":
 
 			#example_queue_name_that_goes_to_replay_buffer.put(stringify_game_record(game_record), game_info_to_stringified_training_data(game_record))
 
-
+			for i in range(len(visits)):
+				if i not in diagnostics_total_cell_visits:
+					diagnostics_total_cell_visits[i] = 0
+				diagnostics_total_cell_visits[i] += visits[i]
+			print('\n'.join([str(move_number) + ' ' + str(visit_count) for move_number, visit_count in diagnostics_total_cell_visits.items()]))

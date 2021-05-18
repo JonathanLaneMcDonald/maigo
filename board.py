@@ -29,7 +29,12 @@ class Board:
 		self.legal_for_black = np.ones(self.area, dtype=np.intc)
 		self.legal_for_white = np.ones(self.area, dtype=np.intc)
 
+		self.cell_visits = np.zeros(self.area, dtype=np.intc)
+
 		self.setup_neighbors()
+
+	def get_cell_visits(self):
+		return self.cell_visits
 
 	def get_neighbors_at_position(self, board_index):
 		return self.neighbors[board_index]
@@ -46,6 +51,8 @@ class Board:
 				self.neighbors.append(neighbor_list)
 
 	def place_stone(self, move, player):
+
+		self.cell_visits = np.zeros(self.area, dtype=np.intc)
 
 		if move == -1 or move == self.area or move == None:
 			self.unregister_ko()
@@ -147,6 +154,8 @@ class Board:
 					to_visit += [x for x in self.get_neighbors_at_position(position) if not visited[x]]
 				else:
 					ffr.adjacent_groups.add(self.board[position])
+
+				self.cell_visits[position] += 1
 
 			visited[position] = True
 
