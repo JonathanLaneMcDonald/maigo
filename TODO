@@ -1,77 +1,45 @@
 
-TODO
-	set up a max_recursion_depth of like maybe 30 or something -- when a node reaches that depth and still isn't a leaf, just "backup" the current node's value
-		this has the following benefits:
-			it clears the outstanding simulation counts
-			it keeps the node from being explored again (anytime soon)
-			and it does both of those things while having a minimal impact on the search score for that node
-	improve simulation efficiency
-		if i'm doing 100 sims/move and ~100 moves/game, then for 100k games, i'll be doing 1 billion sims
-		i have some efficiency issues nearing terminal game state where i'm visiting way too many cells
-		put together a profiler to count cell visits:
-			linearize the visit counter as a function of the number of the move in the game to find the pain points
-			once you've found those pain points, print the visit counter in 2D with () parens around the placed stone
-			i think i have enough info now between liberties and legal moves to get that visit count way down, especially at the end-game
-	training-time move sampling
-		according to ELF, they do a proportional sampling across all moves. i'm happy to do the same
-	symmetries in training
-		the SAI guys said they generate symmetries to keep from getting stuck in local sequences of moves (like leela zero), so i guess symmetries are back :D
-	update frequency
-		the AZ guys said they did about 30:1 games to updates where each update was a batch of 4096, i'm happy to do a batch of 1024 every 10 games (inc. symmetries)
-	early resignation
-		could do early resignation when both players agree on who's going to win with 95% confidence (e.g. x < -0.95 and y >= 0.95)
-		maybe say something like:
-			if the value of this node < -0.95:
-				if the value of the parent's node is > 0.95:
-					then end the game in resignation
+Just threw everything away because it's been like a year and even an inefficient model would have improved a lot by now.
+So I can just write something like the below and run it when I'm not using the computer and it should just get better and better.
+At the very least, I should be able to check in from time to time and see unambiguous improvement and, sometimes, play against the latest model :D
+Can probably refactor/jigger up the following in the span of a week or so? Could be a nice project in my spare time in September?
 
-Training:
-
-	1) in the beginning, we have no game and an uninitialized model
-
-	2) start by creating a model
-
-	3) initialize the model and a bunch of workers
-
-	4) each worker plays a game, sending frames to the model for inference, playing through games over and over
-
-	5) once games are complete, workers submit the game record and the game frames to a replay manager
-
-	6) when the replay manager has a multiple of 100 games,
-		it creates a training batch of like 2048 positions with a k^1/3 distribution over the last 1_000_000 moves,
-		sends it to the model on a special queue for training,
-		the model is checking this pipe in an infinite loop before checking for inference,
-		when the model finds a training batch in the training queue, it does a single update to the model,
-			saves the current state of the model, and saves a checkpoint every, say, 10_000 games (100 updates)
-		make sure the replays and training frames are flushed to files so we can resume from where we left off...
-		NOTE: a neat thing is now that we're waiting for outstanding results, the games will all sort of automatically pause during training!
-
-		So, based on this, i might be getting an update every 2-5 minutes and a new model checkpoint every couple of hours!
-
-		Super eager to see how the models improve... see if gameplay improves... can't wait :D
-
-
-
-
-
-
-TODO
-	Speed Improvements in game simulator:
-		Problem: I get to late in a game and slow down because floodfill is going all over the whole board over and over
-		Solution: Start tracking eyes and pass-alive groups -- groups where 2 or more liberties have group_id at NSEW
-			With this solution, if I'm part of a pass-alive group, I know there won't be capture-related consequences
-			So I can skip a lot of calculation
-	Parallel gameplay:
-		not really a problem here. the way things are set up, i think the model will keep up with a large number of workers
-		I just played through 86 games in 15.1 seconds per game @ max(9, 81-len(moves)) searches per move
-		so i think i can get a near linear speedup with up to 10-20 workers... so i may be able to net around 1 game per second
-	Model updates:
-		i need to figure out how to do live updates while all this inference is going on
-		Maybe I'll keep a replay manager in the ModelManager and I'll put in a second pipe for real games and training frames
-		Then each worker can prep and send the game and training frames after completing a game
-		Then every kth game in the replay buffer, I can do a model update... maybe once every 100 games or so I can do an update with a single batch of like 2048?
-		anyway, live updates...
-
+todo:
+	- i want to put together a really simple, performant network and i don't mind tracking certain things programmatically
+	- for the architecture, i'm thinking something like this:
+		- inputs:
+			- NxNx5 channels (channels=current black/current white/previous black/previous white/player to move)
+		- body:
+			- residual convolutional stack (maybe 6x96? with squeeze-excitation? do some training experiments)
+		- outputs:
+			- policy head (i like the embedding to categorical output like they have in agz)
+			- value head (predict who will win the game {tanh me=1, opponent=-1?})
+	- training loop:
+		load current model or create a new one
+		while True:
+			start a self-play game:
+				while game.sensible_moves_available_for_at_least_one_player == True:
+					if move_number < area:
+						next_move = tree_search.get_move_after_simulations(simulations=area, weighted_sample_across_all_moves=True)
+					else:
+						next_move = tree_search.get_raw_model_sample(weighted_sample_across_all_moves=True)
+			record game:
+				replay_buffer.submit_new_game(sfg_of_the_game_we_just_played)
+				if replay_buffer.number_of_games(counting_symmetries=False)//1000: (True if we have at least 1000 games stored)
+					training_data = replay_buffer.create_training_dataset(batches=1, samples_per_batch=1024, include_symmetries=True)
+					model.train(training_data)
+					model.save(filename="current_model.h5")
+				if replay_buffer.number_of_games(counting_symmetries=False) % 1000 == 0:
+					model.create_checkpoint(id=replay_buffer.number_of_games(counting_symmetries=False))
+					do a self-play tournament:
+						load existing tournament data, which includes information about all model checkpoints
+						play 1000 games between randomly selected models, favoring recent models, maybe like int(len(models)*(1-random()**2))
+							these games won't use mcts, they'll just do a weighted random sample across all "sensible" moves until nobody has sensible moves left
+							so this should all play out way way faster than the normal self-play games and that's okay because we're just evaluating raw models
+					produce some kind of report (csv?) of the latest state of the model tournaments and who's the strongest and all that
+						i'm thinking about that triangle plot thing that shows which models can beat which other models
+	- then basically just let this run whenever you're not actively using the big computer and it should just get stronger over time
+		at the very least, it should be possible to see that the models are eventually using strategy and stuff
 
 
 
