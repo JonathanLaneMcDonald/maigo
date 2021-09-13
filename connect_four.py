@@ -14,6 +14,7 @@ class ConnectFour:
 		player_1_wins = 1
 		player_2_wins = 2
 		nobody_wins = 3
+		killed = 4
 
 	def __init__(self):
 
@@ -26,7 +27,11 @@ class ConnectFour:
 		if self.fullness[column] < self.ROWS:
 			self.grid[column][self.fullness[column]] = player
 			self.check_state(column, self.fullness[column], player)
+
 			self.fullness[column] += 1
+			if not len(self.get_legal_moves()):
+				self.status = ConnectFour.Status.nobody_wins
+
 			return True
 		return False
 
@@ -47,11 +52,6 @@ class ConnectFour:
 
 	def check_state(self, move_col, move_row, player):
 		"""check vertical, horizontal, and both diagonals -- walk up to 3 in each of the 8 directions"""
-		# vertical		(0,1 -> 0,-1)
-		# horizontal	(-1,0 -> +1,0)
-		# diagonal 		(-1,-1 -> +1,+1)
-		# diagonal 		(-1,+1 -> +1,-1)
-
 		if \
 			1 + self.get_travel(move_col, move_row, 0,+1, player, 3) + self.get_travel(move_col, move_row, 0,-1, player, 3) >= 4 or \
 			1 + self.get_travel(move_col, move_row,-1, 0, player, 3) + self.get_travel(move_col, move_row,+1, 0, player, 3) >= 4 or \
@@ -61,8 +61,6 @@ class ConnectFour:
 				self.status = ConnectFour.Status.player_1_wins
 			elif player == 2:
 				self.status = ConnectFour.Status.player_2_wins
-		elif sum(self.get_legal_moves()) == 0:
-			self.status = ConnectFour.Status.nobody_wins
 
 	def display(self):
 		print()
@@ -72,12 +70,13 @@ class ConnectFour:
 
 from numpy.random import choice
 
-if __name__ == "__main__":
+def play_a_game():
 	cf = ConnectFour()
 
 	change = {1:2, 2:1}
 
 	player = 1
+	move_count = 0
 	while cf.status == ConnectFour.Status.in_progress:
 		legal_moves = cf.get_legal_moves()
 		if len(legal_moves):
@@ -85,12 +84,27 @@ if __name__ == "__main__":
 			move = choice(legal_moves, p=normalized_legal_moves)
 			success = cf.do_move(move, player)
 			if not success:
-				print("a thing happen!")
-			print("legal moves:", legal_moves, "weights:", normalized_legal_moves, "selected move:", move, "player:", player)
-			cf.display()
+				raise Exception("a happening!")
+			else:
+				move_count += 1
+			#print("legal moves:", legal_moves, "weights:", normalized_legal_moves, "selected move:", move, "player:", player)
+			#cf.display()
 			player = change[player]
+		else:
+			raise Exception("another happening!")
 
+	return move_count, cf.status
 
+move_counts = []
+status = {k:0 for k in range(5)}
+for i in range(1000000):
+	mv, st = play_a_game()
+	move_counts.append(mv)
+	status[st] += 1
+	if i % 1000 == 0:
+		print(i, status)
+print(np.average(move_counts), np.std(move_counts))
+print(status)
 
 
 
