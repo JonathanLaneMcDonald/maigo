@@ -1,4 +1,5 @@
 
+from copy import copy
 import numpy as np
 
 class ConnectFour:
@@ -16,12 +17,16 @@ class ConnectFour:
 		nobody_wins = 3
 		killed = 4
 
-	def __init__(self):
+	def __init__(self, other=None):
 
-		self.grid = np.zeros((self.COLUMNS, self.ROWS), dtype=int)
-		self.fullness = np.zeros(self.COLUMNS, dtype=int)
-
-		self.status = ConnectFour.Status.in_progress
+		if other is None:
+			self.grid = np.zeros((self.COLUMNS, self.ROWS), dtype=int)
+			self.fullness = np.zeros(self.COLUMNS, dtype=int)
+			self.status = ConnectFour.Status.in_progress
+		else:
+			self.grid = copy(other.grid)
+			self.fullness = copy(other.fullness)
+			self.status = copy(other.status)
 
 	def do_move(self, column, player):
 		if self.fullness[column] < self.ROWS:
@@ -35,8 +40,19 @@ class ConnectFour:
 			return True
 		return False
 
+	def as_model_features(self, player_to_move):
+		features = np.zeros((self.COLUMNS, self.ROWS, 3), dtype=int)
+		for c in range(self.COLUMNS):
+			for r in range(self.ROWS):
+				if self.grid[c][r] == 1:
+					features[c][r][0] = 1
+				if self.grid[c][r] == 2:
+					features[c][r][1] = 1
+				if player_to_move == 1:
+					features[c][r][2] = 1
+
 	def get_legal_moves(self):
-		return np.array([col for col in range(self.COLUMNS) if self.fullness[col] < self.ROWS])
+		return [col for col in range(self.COLUMNS) if self.fullness[col] < self.ROWS]
 
 	def get_travel(self, start_col, start_row, col_delta, row_delta, player, max_steps):
 		player_pieces = 0
@@ -95,16 +111,17 @@ def play_a_game():
 
 	return move_count, cf.status
 
-move_counts = []
-status = {k:0 for k in range(5)}
-for i in range(1000000):
-	mv, st = play_a_game()
-	move_counts.append(mv)
-	status[st] += 1
-	if i % 1000 == 0:
-		print(i, status)
-print(np.average(move_counts), np.std(move_counts))
-print(status)
+if __name__ == "__main__":
+	move_counts = []
+	status = {k:0 for k in range(5)}
+	for i in range(1000000):
+		mv, st = play_a_game()
+		move_counts.append(mv)
+		status[st] += 1
+		if i % 1000 == 0:
+			print(i, status)
+	print(np.average(move_counts), np.std(move_counts))
+	print(status)
 
 
 

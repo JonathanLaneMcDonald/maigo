@@ -1,24 +1,72 @@
 
-import numpy as np
-from numpy.random import choice, random
-from copy import deepcopy
-from datasets import game_state_to_model_inputs
+from connect_four import ConnectFour
 
-class FlatMCTS:
+class McTuss:
 	"""
 	i'll try and sketch out some steps for setup and steady-state operation of the mcts...
 
+	tree is created:
+		use model to predict policy/value for root node
 
+	are we in steady-state now?
 
+	steady-state:
+		do some simulations:
+			for each simulation:
+				recurse to leaf:
+					establish graph walker by pointing at current play root
+					while graph walker is not leaf:
+						do p-uct to select the next node:
+							todo
+								when a node is established, we:
+									1) ask the game for a representation of the current game state
+									2) do an inference to predict policies for all the children and the value of the current node
+									3) we cross-reference the policy with legal moves to define:
+										i) children of this node {mv: Node}, and
+										ii) policy of child {mv: float (normalized to 1 over legal moves)}, and
+							todo
+								to calculate p-uct score, we need value, policy, N(c'), and N(c)
+								value and N(c') are stored inside the child node
+								policy and N(c) are stored in the parent node
+								i can tell if the current node has been expanded by seeing if its simulation count is greater than zero
+								if the current node has been expanded:
+									score = {}
+									for each child in self.children.keys():
+										value = parent.value if self.children[key] is None else self.children[key].value
+										policy = parent.policies[key] (because this exists for every legal move)
+										N(c') = 0 if self.children[key] is None else self.children[key].simulations
+										N(c) = parent.simulations
+										score[key] = value + policy * sqrt(N(c') / (1+N(c)))
+								else:
+									the current node is the one we should expand
+						maybe push each node in the branch to a stack so we can easily replay the results later
 
+				expand leaf / do inference:
+					copy the game state over from the parent and perform the move that got us to this point
+					ask the game for a representation of the game board and for a set of legal moves
+					we'll do inference and create the dictionaries we need and that'll be that
 
+				propagate signal back up the branch:
+					maybe have it so the model always predicts 1 if player 1 should win or 0 if player 2 should win
+					that way, you can basically say if player == 1, then value += value, simulations += 1
+					else, if player == 2, then value += (1-value), simulations += 1
+					or something like that
 
+		after simulations are complete, select the move to do:
+			take a weighted random sample across all legal moves with the total number of simulations normalized to 1.0
 
+		if a game goes longer than expected, we can expedite it by:
+			sampling the raw policy of the network to drive the game to conclusion and get a winner
+			we still track the game in mcts, but expand only the nodes we need to in order to follow the branch
+
+		connect four should be a great test game for this! it's simple, yet non-trivial :D
+
+		i wonder if i should go for NoGo after connect four or if I should go straight for Go?
 
 	"""
 
 	class Node:
-		def __init__(self, game_state, completed_move, player_to_move, parent):
+		def __init__(self, parent, player_to_move, completed_move, game_state: ConnectFour, model):
 			self.parent = parent
 
 			self.move_completed_to_get_here = completed_move
@@ -27,252 +75,49 @@ class FlatMCTS:
 			self.value_of_my_subtree = 0
 			self.simulations_in_my_subtree = 0
 
+			self.game_state = game_state
+
 			# mv: Node
 			self.child_nodes = {}
+			self.initialize_children()
 
 			# mv: policy
 			self.child_policy = {}
+			self.initialize_policy_and_value(model)
 
-			self.game_state = game_state
+		def initialize_children(self):
+			self.child_nodes = {mv: None for mv in self.game_state.get_legal_moves()}
 
-	def __init__(self):
+		def initialize_policy_and_value(self, model):
+			model_inputs = self.game_state.as_model_features(self.player_to_move)
+			policy, value = model.predict(model_inputs)
+			sum_of_weights = sum([policy[p] for p in range(len(policy)) if p in self.child_nodes.keys()])
+			self.child_policy = {p: policy[p]/sum_of_weights for p in range(len(policy)) if p in self.child_nodes.keys()}
+			self.value_of_my_subtree = value
+			self.simulations_in_my_subtree = 1
 
-		self.game_root = None
-		self.play_root = None
+		def update_value(self, additional_value_in_subtree):
+			self.value_of_my_subtree += additional_value_in_subtree
+			self.simulations_in_my_subtree += 1
 
-		self.initialize_root()
+	def __init__(self, model):
 
-	def initialize_root(self):
-
-
-
-
-	class Node:
-		def __init__(self, game_state, completed_move, player_to_move, parent):
-			self.parent = parent
-
-			self.completed_move = completed_move
-			self.player_to_move = player_to_move
-
-			self.child_policy = np.zeros(82, dtype=np.float)
-			self.child_value = np.zeros(82, dtype=np.float)
-			self.child_subtree_sims = np.zeros(82, dtype=np.intc)
-			self.child_outstanding_sims = np.zeros(82, dtype=np.intc)
-			self.child_legality = np.zeros(82, dtype=np.intc)
-			self.child_nodes = [None]*82
-
-			self.game_state = game_state
-
-	def __init__(self, game_state, process_id, tasks_from_mcts_to_model, results_from_model_to_mcts):
-		# set up nodes and model
-		self.game_root = MCTS.Node(game_state, None, 1, None)
+		self.game_root = self.create_node(None, 1, None, ConnectFour(), model)
 		self.play_root = self.game_root
 
-		# these are more diagnostic
-		self.deepest_leaf = 0
-		self.episode_cell_visits = 0
+	def create_node(self, parent, player_to_move, completed_move, game_state, model):
+		return McTuss.Node(parent, player_to_move, completed_move, game_state, model)
 
-		self.process_id = process_id
-		self.random_number = int(random()*100_000)
-		self.tasks_to_model = tasks_from_mcts_to_model
-		self.results_from_model = results_from_model_to_mcts
+	def simulate(self, n_simulations):
+		for _ in range(n_simulations):
+			leaf = self.recurse_to_and_expand_leaf(self.play_root)
 
-		self.node_lut = {0:self.game_root}
-		self.node_rlut = {self.game_root:0}
+	def recurse_to_and_expand_leaf(self, node):
+		walker = node
 
-		# set up game root
-		self.forward_state_for_inference(self.game_root)
-
-	def get_node_cell_visits(self):
-		return self.play_root.game_state.get_cell_visits()
-
-	def get_episode_cell_visits(self):
-		return self.episode_cell_visits
-
-	def get_recursion_depth(self):
-		return self.deepest_leaf
-
-	def get_outstanding_sims(self):
-		return sum(self.play_root.child_outstanding_sims)
-
-	def get_value_at_play_root(self):
-		if self.play_root == self.game_root:
-			return 'zero'
-		else:
-			return self.play_root.parent.child_value[self.play_root.completed_move]
-
-	def get_node_count(self):
-		return len(self.node_lut)
-
-	def get_final_score(self):
-		return self.play_root.game_state.get_simple_terminal_score_and_ownership()
-
-	def display(self):
-		return self.play_root.game_state.display(self.play_root.completed_move)
-
-	def get_player_to_move(self):
-		return self.play_root.player_to_move
-
-	def commit_to_move(self, move):
-		if self.play_root.child_legality[move]:
-			if self.play_root.child_nodes[move] == None:
-				self.expand_and_evaluate(self.play_root, move)
-			self.play_root = self.play_root.child_nodes[move]
-			return True
-		else:
-			return False
-
-	def get_weighted_random_move_from_top_k(self, k=3):
-
-		while sum(self.play_root.child_outstanding_sims):
-			self.flush_results_queue()
-
-		print("Outstanding Sims:", self.get_outstanding_sims())
-
-		moves_at_simulation_count = {}
-		for move in [x for x in range(82) if self.play_root.child_legality[x]]:
-			total_sims = self.play_root.child_subtree_sims[move] + self.play_root.child_outstanding_sims[move]
-			if total_sims not in moves_at_simulation_count:
-				moves_at_simulation_count[total_sims] = []
-			moves_at_simulation_count[total_sims].append(move)
-
-		inverse_sorted_by_simulation_count = list(reversed(sorted(moves_at_simulation_count.items())))
-
-		moves_under_consideration = []
-		for simulations, moves in inverse_sorted_by_simulation_count:
-			if len(moves_under_consideration) < k:
-				moves_under_consideration += [(simulations, x) for x in moves]
-
-		moves = [mv for sims, mv in moves_under_consideration]
-		weights = np.array([sims for sims, mv in moves_under_consideration])+1
-
-		return choice(moves, p=weights/sum(weights))
-
-	def get_search_value(self, move, value, policy, sims, sqrt_total_sims):
-		if move == 81:
-			return float('-inf')
-
-		Vc = 0 if sims == 0 else value / sims
-		Pc = policy
-		c = 1.5
-
-		return Vc + c*Pc*(sqrt_total_sims/(1+sims))
-
-	def select_child(self, node):
-		sqrt_total_sims = sum(node.child_subtree_sims + node.child_outstanding_sims)**0.5
-		sorted_children = sorted([(self.get_search_value(
-			x,
-			node.child_value[x],
-			node.child_policy[x],
-			node.child_subtree_sims[x] + node.child_outstanding_sims[x],
-			sqrt_total_sims
-		), x) for x in range(82) if node.child_legality[x]], key=lambda x: x[0])
-		return sorted_children[-1][-1]
-
-	def flush_results_queue(self):
-		while not self.results_from_model.empty():
-			self.pull_and_apply_prediction()
-
-	def simulate(self, min_searches=9, searches=-1, max_recursion_depth=30):
-		if searches == -1:
-			searches = max(min_searches, sum(self.play_root.child_legality))
-
-		self.deepest_leaf = 0
-		self.episode_cell_visits = 0
-
-		for s in range(searches):
-
-			self.flush_results_queue()
-
-			walker = self.play_root
-			next_move = self.select_child(walker)
-
-			recurse_depth = 0
-
-			walking = True
-			while walking:
-
-				walker.child_outstanding_sims[next_move] += 1
-
-				if walker.child_nodes[next_move] == None:
-					self.expand_and_evaluate(walker, next_move)
-					walking = False
-				else:
-					walker = walker.child_nodes[next_move]
-					next_move = self.select_child(walker)
-
-					recurse_depth += 1
-					if recurse_depth >= max_recursion_depth:
-						self.dummy_backup(walker, self.play_root)
-						walking = False
-
-			if self.deepest_leaf < recurse_depth:
-				self.deepest_leaf = recurse_depth
-
-	def state_to_model_inputs(self, node):
-		return game_state_to_model_inputs(node.game_state, node.player_to_move)
-
-	def forward_state_for_inference(self, node):
-
-		# this is hacky. i'm getting errors because i haven't established legality, so this is a work-around
-		# but i need to figure out the right way to organize all of this once i actually get it working
-		for move in node.game_state.get_sensible_moves_for_player(node.player_to_move):
-			node.child_legality[move] = 1
-
-		self.tasks_to_model.put((self.random_number, self.process_id, self.node_rlut[node], self.node_rlut[self.play_root], self.state_to_model_inputs(node)))
-
-	def pull_and_apply_prediction(self):
-
-		if self.results_from_model.empty():
-			raise Exception("how did i get here if the queue is empty?")
-
-		random_id, node_id, parent_id, policy, value = self.results_from_model.get()
-
-		if self.random_number == random_id:
-			#print("received result for node", node_id, "parent", parent_id)
-			node = self.node_lut[node_id]
-			originating_ancestor = self.node_lut[parent_id]
-			for move in node.game_state.get_sensible_moves_for_player(node.player_to_move):
-				node.child_legality[move] = 1
-				node.child_policy[move] = policy[move]
-
-			self.backup(node, originating_ancestor, value)
-		else:
-			print("found a stale result (probably from an old game)", self.random_number, "!=", random_id)
-
-	def dummy_backup(self, node, originating_ancestor):
-		'''the max recursion depth has been reached, so we're giving up on recursing farther and '''
-		assert node != self.play_root
-		if node.parent.child_subtree_sims[node.completed_move]:
-			self.backup(node, originating_ancestor, node.parent.child_value[node.completed_move]/node.parent.child_subtree_sims[node.completed_move])
-		else:
-			#raise Exception("surprisingly, we got to the recursion limit on an unsimulated node")
-			print("Reached recursion limit on unsimulated node -- Assigning value of zero")
-			self.backup(node, originating_ancestor, 0)
-
-	def backup(self, node, originating_ancestor, value):
-		# "value" is the likelihood that black wins. account for this when selecting nodes in search
-		if node != originating_ancestor:
-			node.parent.child_value[node.completed_move] += value
-			node.parent.child_subtree_sims[node.completed_move] += 1
-			node.parent.child_outstanding_sims[node.completed_move] -= 1
-			self.backup(node.parent, originating_ancestor, value)
-
-	def expand_and_evaluate(self, node, next_move):
-
-		new_game = deepcopy(node.game_state)
-		if not new_game.place_stone(next_move, node.player_to_move):
-			raise Exception("error performing move")
-
-		self.episode_cell_visits += new_game.get_cell_visits()
-		node.child_nodes[next_move] = MCTS.Node(new_game, next_move, -node.player_to_move, node)
-
-		self.node_lut[len(self.node_lut)] = node.child_nodes[next_move]
-		self.node_rlut[node.child_nodes[next_move]] = len(self.node_lut)-1
-
-		self.forward_state_for_inference(node.child_nodes[next_move])
-
-
+		keep_walking = True
+		while keep_walking:
+			
 
 
 
