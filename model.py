@@ -37,8 +37,9 @@ def build_agz_model(blocks, filters, input_shape):
 		loss={'policy': 'sparse_categorical_crossentropy',
 			  'value': 'mse'},
 		loss_weights={'policy': 1.0,
-					  'value': 1.0},
-		optimizer=Adam(lr=0.0001)
+					  'value': 0.0},
+		optimizer=Adam(lr=0.0001),
+		metrics=["accuracy"]
 	)
 	model.summary()
 

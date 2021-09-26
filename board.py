@@ -33,6 +33,36 @@ class Board:
 
 		self.setup_neighbors()
 
+	def get_stones_for_player(self, player):
+		features = np.zeros((1, self.side, self.side), dtype=np.ubyte)
+		for r in range(self.side):
+			for c in range(self.side):
+				features[0][r][c] = 1 if self.board[r*self.side + c] < self.area and self.ownership[self.board[r*self.side + c]] == player else 0
+		return features
+
+	def get_legal_moves_for_player(self, player):
+		features = np.zeros((1, self.side, self.side), dtype=np.ubyte)
+		for r in range(self.side):
+			for c in range(self.side):
+				features[0][r][c] = 1 if (self.legal_for_black[r * self.side + c] and player == 1) or \
+										 (self.legal_for_white[r * self.side + c] and player == -1) else 0
+		return features
+
+	def get_player_id_layer(self, player):
+		if player == 1:
+			return np.ones((1, self.side, self.side), dtype=np.ubyte)
+		else:
+			return np.zeros((1, self.side, self.side), dtype=np.ubyte)
+
+	def get_features(self, player_to_move):
+		features = np.zeros((5, self.side, self.side), dtype=np.ubyte)
+		features[0] = self.get_stones_for_player(1)
+		features[1] = self.get_legal_moves_for_player(1)
+		features[2] = self.get_stones_for_player(-1)
+		features[3] = self.get_legal_moves_for_player(-1)
+		features[4] = self.get_player_id_layer(player_to_move)
+		return features
+
 	def get_cell_visits(self):
 		return self.cell_visits
 
@@ -54,7 +84,7 @@ class Board:
 
 		self.cell_visits = np.zeros(self.area, dtype=np.intc)
 
-		if move == -1 or move == self.area or move == None:
+		if move == -1 or move == self.area or move is None:
 			self.unregister_ko()
 			return True
 		elif move < 0 or self.area < move:

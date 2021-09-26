@@ -108,16 +108,42 @@ class McTuss:
 	def create_node(self, parent, player_to_move, completed_move, game_state, model):
 		return McTuss.Node(parent, player_to_move, completed_move, game_state, model)
 
-	def simulate(self, n_simulations):
+	def simulate(self, n_simulations, model):
 		for _ in range(n_simulations):
-			leaf = self.recurse_to_and_expand_leaf(self.play_root)
+			leaf = self.recurse_to_and_expand_leaf(self.play_root, model)
 
-	def recurse_to_and_expand_leaf(self, node):
+	def recurse_to_and_expand_leaf(self, node, model):
 		walker = node
 
-		keep_walking = True
-		while keep_walking:
-			
+		while True:
+			scores = {}
+			for child in walker.child_nodes.keys():
+
+				# set up some default values
+				value = walker.value_of_my_subtree
+				policy = walker.child_policy[child]
+				subtree_sims = walker.simulations_in_my_subtree
+				child_sims = 0
+
+				# if possible, replace some defaults with accurate values
+				if not walker.child_nodes[child] is None:
+					value = walker.child_nodes[child].value_of_my_subtree
+					child_sims = walker.child_nodes[child].simulations_in_my_subtree
+
+				scores[child] = value + policy * (child_sims / (1+subtree_sims))**0.5
+
+			if len(scores):
+				desired_move = sorted([(scores[child], child) for child in scores.keys()])[-1][1]
+				if walker.child_nodes[desired_move] is None:
+					game_state = ConnectFour(walker.game_state)
+					game_state.do_move(desired_move, walker.player_to_move)
+					if walker.player_to_move == 1:
 
 
+					# then copy the game and expand the node
+
+				else:
+					walker = walker.child_nodes[desired_move]
+			else:
+				return None
 

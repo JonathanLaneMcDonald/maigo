@@ -1,217 +1,142 @@
 
+from os import path
 import numpy as np
-import time
 from numpy.random import random
 
 from board import Board
 from model import build_agz_model
 
-from keras.models import save_model
+def build_kgs_dataset(samples):
+	def str_to_int(move):
+		if move == "pass":
+			return -1
+		return 19*(ord(move[0])-ord('a')) + (ord(move[1])-ord('a'))
 
-def _smallnum_to_char_(m):
-	return chr(40+m)
+	games = [x.split(',') for x in open("go_kgs_6d+_games",'r').read().split('\n') if len(x) and 100 <= len(x.split(',')) < 200]
+	print(len(games),"games loaded")
+	print(sum([len(x) for x in games]),"moves in dataset")
 
-def _char_to_smallnum_(m):
-	return ord(m)-40
+	features = np.zeros((samples, 19, 19, 5), dtype=np.ubyte)
+	policies = np.zeros((samples, 1), dtype=np.int)
+	values = np.zeros((samples, 1), dtype=np.int)
 
-def stringify_game_record(gr):
-	return str(gr['timestamp']) + ' ' + str(gr['boardsize']) + ' ' + str(gr['komi']) + ' ' + gr['moves'] + ' ' + gr['ownership'] + ' ' + str(gr['score']) + ' ' + str(gr['outcome'])
+	s = 0
+	while s < samples:
+		g = int(random()*len(games))
+		m = int(random()*len(games[g]))
 
-def parse_game_record(game_record):
-	return {
-		'timestamp': int(game_record.split()[0]),
-		'boardsize': int(game_record.split()[1]),
-		'komi': float(game_record.split()[2]),
-		'moves': game_record.split()[3],
-		'ownership': game_record.split()[4],
-		'score': float(game_record.split()[5]),
-		'outcome': float(game_record.split()[6])
-	}
+		if games[g][m] != "pass":
+			board = Board(side=19)
+			player = 1
+			for mv in games[g][:m]:
+				board.place_stone(str_to_int(mv), player)
+				player *= -1
 
-def create_game_record(board_size, komi, moves, ownership, score, outcome):
-	return {
-		'timestamp': int(time.time()),
-		'boardsize': board_size,
-		'komi': komi,
-		'moves': moves,
-		'ownership': ownership,
-		'score': score,
-		'outcome': outcome
-	}
+			features[s] = np.moveaxis(board.get_features(player), 0, -1)
+			policies[s][0] = str_to_int(games[g][m])
+			# values are ignored for now (they're all zeroes by default, so we're fine)
 
-def game_state_to_model_inputs(game, player_to_move):
+			s += 1
+			if s % 100 == 0:
+				print(samples, s)
 
-	model_inputs = np.zeros((8, 9, 9), dtype=np.intc)
+	print(features.shape)
 
-	# stone placement
-	black_stones_plane = np.zeros((9, 9), dtype=np.intc)
-	white_stones_plane = np.zeros((9, 9), dtype=np.intc)
+	return features, policies, values
 
-	for i in range(game.area):
-		y, x = i // 9, i % 9
-		if game.is_black(i):
-			black_stones_plane[y][x] = 1
-		elif game.is_white(i):
-			white_stones_plane[y][x] = 1
+def encode_state(state):
+	encoded = ''
+	for r in range(19):
+		for c in range(19):
+			numeric_value = 48 + (state[r][c][0]<<0) + (state[r][c][1]<<1) + (state[r][c][2]<<2) + (state[r][c][3]<<3) + (state[r][c][4]<<4)
+			encoded += chr(numeric_value)
+			# print(state[r][c], numeric_value)
+	# print(encoded)
+	return encoded
 
-	model_inputs[0] = black_stones_plane
-	model_inputs[1] = white_stones_plane
+def decode_state(state):
+	assert len(state) == 19**2
 
-	# legal moves
-	black_legal_moves = np.zeros((9, 9), dtype=np.intc)
-	white_legal_moves = np.zeros((9, 9), dtype=np.intc)
+	decoded = np.zeros((19, 19, 5), dtype=np.ubyte)
+	for i in range(len(state)):
+		for ch in range(5):
+			decoded[i//19][i%19][ch] = 1 if (ord(state[i])-48) & (1<<ch) else 0
 
-	for i in range(game.area):
-		y, x = i // 9, i % 9
-		if game.is_legal_for_black(i):
-			black_legal_moves[y][x] = 1
-		if game.is_legal_for_white(i):
-			white_legal_moves[y][x] = 1
+	return decoded
 
-	model_inputs[2] = black_legal_moves
-	model_inputs[3] = white_legal_moves
+def encode_kgs_dataset():
+	if path.exists("encoded_kgs_dataset"):
+		print("the kgs dataset already exists -- skipping")
+		return
 
-	# liberties
-	liberties = np.zeros((3, 9, 9), dtype=np.intc)
+	def str_to_int(move):
+		if move == "pass":
+			return 19**2
+		return 19*(ord(move[0])-ord('a')) + (ord(move[1])-ord('a'))
 
-	for i in range(game.area):
-		y, x = i // 9, i % 9
-		if 0 < game.get_liberties_for_position(i) <= 3:
-			liberties[game.get_liberties_for_position(i)-1][y][x] = 1
+	games = [x.split(',') for x in open("go_kgs_6d+_games",'r').read().split('\n') if len(x) and 100 <= len(x.split(','))]
+	total_games = len(games)
+	total_moves = sum([len(x) for x in games])
 
-	model_inputs[4] = liberties[0]
-	model_inputs[5] = liberties[1]
-	model_inputs[6] = liberties[2]
+	games_written = 0
+	moves_written = 0
+	tests_passed = 0
+	with open("encoded_kgs_dataset","w") as dataset:
+		for g in games:
+			board = Board(side=19)
+			player = 1
+			for mv in g:
+				state = np.moveaxis(board.get_features(player), 0, -1)
+				action = str_to_int(mv)
+				dataset.write(encode_state(state) + '\t' + str(action) + '\n')
 
-	# who's turn is it?
-	if player_to_move == 1:
-		model_inputs[7] = np.zeros((9, 9), dtype=np.intc)
-	else:
-		model_inputs[7] = np.ones((9, 9), dtype=np.intc)
+				if random() < 0.01:
+					encoded = encode_state(state)
+					decoded = decode_state(encoded)
+					if np.array_equal(state, decoded):
+						tests_passed += 1
+					else:
+						raise Exception("there's a problem with the codecs")
 
-	return model_inputs
+				board.place_stone(action, player)
+				player *= -1
 
-def game_info_to_model_outputs(info, target):
-	policy = np.array([_char_to_smallnum_(info['moves'][target])], dtype=np.intc)
-	value = np.array([info['outcome']], dtype=np.intc)
-	return policy, value
+			games_written += 1
+			moves_written += len(g)
+			print("games written:",games_written,'/',total_games, "moves written:",moves_written,'/',total_moves, "tests passed:",tests_passed)
 
-def stringify_inputs_and_targets(model_inputs, policy_target, value_target, player_to_move):
-	stringified = []
-	for r in range(9):
-		for c in range(9):
-			# encoding stone locations {0,1,2}
-			stones = 0
-			if model_inputs[0][r][c] == 1:		stones = 1
-			if model_inputs[1][r][c] == 1:		stones = 2
+def prepare_dataset(samples):
+	if not path.exists("encoded_kgs_dataset"):
+		print("the kgs dataset has not been encoded -- this will take a while")
+		encode_kgs_dataset()
 
-			# encoding legal moves {0,1,2,3}
-			legality = (model_inputs[2][r][c]<<1) + model_inputs[3][r][c]
+	dataset = [line.split() for line in open("encoded_kgs_dataset","r").read().split('\n') if len(line.split()) == 2]
 
-			# encoding liberties {0,1,2,3}
-			liberties = 0
-			if model_inputs[4][r][c] == 1:		liberties = 1
-			if model_inputs[5][r][c] == 1:		liberties = 2
-			if model_inputs[6][r][c] == 1:		liberties = 3
-
-			# we already know who's turn it is, so we can leave channel 7 out to make this more compressible
-
-			stringified.append(_smallnum_to_char_((stones*16) + (legality*4) + liberties))
-
-	return ''.join(stringified) + ' ' + str(player_to_move) + ' ' + str(policy_target[0]) + ' ' + str(value_target[0])
-
-def stringified_to_training_frame(frame):
-	model_inputs = np.zeros((8, 9, 9), dtype=np.intc)
-
-	packed_model_inputs = frame.split()[0]
-	player_to_move = int(frame.split()[1])
-	for i in range(81):
-		y, x = i // 9, i % 9
-
-		value = _char_to_smallnum_(packed_model_inputs[i])
-
-		stones = value // 16
-		if stones == 1:		model_inputs[0][y][x] = 1
-		if stones == 2:		model_inputs[1][y][x] = 1
-
-		legality = (value % 16) // 4
-		if legality & 2:	model_inputs[2][y][x] = 1
-		if legality & 1:	model_inputs[3][y][x] = 1
-
-		liberties = value % 4
-		if liberties:		model_inputs[3+liberties][y][x] = 1
-
-		if player_to_move == 1:		model_inputs[7] = np.zeros((9, 9), dtype=np.intc)
-		else:						model_inputs[7] = np.ones((9, 9), dtype=np.intc)
-
-	policy_target = np.array([int(frame.split()[2])], dtype=np.intc)
-	value_target = np.array([int(frame.split()[3])], dtype=np.intc)
-
-	return model_inputs, policy_target, value_target
-
-def create_training_dataset_from_frames(frames, samples, distribution=0):
-	model_inputs = np.zeros((samples, 8, 9, 9), dtype=np.intc)
-	policy_targets = np.zeros((samples, 1), dtype=np.intc)
-	value_targets = np.zeros((samples, 1), dtype=np.intc)
+	features = np.zeros((samples, 19, 19, 5), dtype=np.ubyte)
+	policies = np.zeros((samples, 1), dtype=int)
+	values = np.zeros((samples, 1), dtype=int)
 
 	for s in range(samples):
-		if distribution == 0:
-			model_inputs[s], policy_targets[s], value_targets[s] = stringified_to_training_frame(frames[int(random()*len(frames))])
-		else:
-			frame = frames[-int(1+min(len(frames), distribution) * (1 - random() ** (1 / 3)))]
-			model_inputs[s], policy_targets[s], value_targets[s] = stringified_to_training_frame(frame)
+		index = int(random()*len(dataset))
 
-	# convert features from channels_first to channels_last
-	model_inputs = np.moveaxis(model_inputs, 1, -1)
+		state = dataset[index][0]
+		action = dataset[index][1]
 
-	return model_inputs, policy_targets, value_targets
+		features[s] = decode_state(state)
+		policies[s] = int(action)
 
-def game_info_to_stringified_training_data(info):
-
-	stringified_training_data = []
-
-	player_to_move = 1
-	game = Board(9, 6.5)
-	for target in range(len(info['moves'])):
-		model_inputs = game_state_to_model_inputs(game, player_to_move)
-		policy_target, value_target = game_info_to_model_outputs(info, target)
-
-		stringified_training_data.append(stringify_inputs_and_targets(model_inputs, policy_target, value_target, player_to_move))
-
-		error_happen = not game.place_stone(_char_to_smallnum_(info['moves'][target]), player_to_move)
-		if error_happen:
-			raise Exception("oh shit, a happening!")
-		player_to_move *= -1
-
-	return stringified_training_data
+	return features, policies, values
 
 if __name__ == "__main__":
 
-	'''
-	filename = 'modernized 9x9 games'
-	games = [x for x in open(filename, 'r').read().split('\n') if len(x)]
-	print(len(games), 'real games loaded')
+	blocks = 4
+	channels = 32
 
-	with open('simple agz training data','w') as fwrite:
-		for g in range(len(games)):
-			for frame in game_info_to_stringified_training_data(parse_game_record(games[g])):
-				fwrite.write(frame+'\n')
-			print(g)
-	'''
+	model = build_agz_model(blocks, channels, input_shape=(19, 19, 5))
 
-
-	blocks = 6
-	channels = 96
-
-	model = build_agz_model(blocks, channels, input_shape=(9, 9, 8))
-
-	step = 128
-	start_time = time.time()
-	for e in range(0,50000,step):
-		model.predict(np.zeros((step,9,9,8)))
-		if e % 128 == 0:
-			print(e, e/(time.time()-start_time))
-
-
+	for e in range(1000):
+		features, policies, values = prepare_dataset(2**20)
+		model.fit(features, [policies, values], verbose=1, batch_size=128, epochs=1, validation_split=0.125)
+		model.save(f"ag policy epochs={e+1}", save_format="h5")
 
 
