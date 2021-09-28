@@ -54,14 +54,37 @@ class Board:
 		else:
 			return np.zeros((1, self.side, self.side), dtype=np.ubyte)
 
-	def get_features(self, player_to_move):
-		features = np.zeros((5, self.side, self.side), dtype=np.ubyte)
-		features[0] = self.get_stones_for_player(1)
-		features[1] = self.get_legal_moves_for_player(1)
-		features[2] = self.get_stones_for_player(-1)
-		features[3] = self.get_legal_moves_for_player(-1)
-		features[4] = self.get_player_id_layer(player_to_move)
-		return features
+	def get_liberties_as_features_for_player(self, player, liberty_count):
+		liberties = np.zeros((1, self.side, self.side), dtype=np.ubyte)
+		for r in range(self.side):
+			for c in range(self.side):
+				if self.board[r * self.side + c] < self.area and \
+						self.ownership[self.board[r * self.side + c]] == player and \
+						self.liberties[self.board[r * self.side + c]] == liberty_count:
+					liberties[0][r][c] = 1
+		return liberties
+
+	def get_features(self):
+		stone_positions = np.zeros((2, self.side, self.side), dtype=np.ubyte)
+
+		stone_positions[0] = self.get_stones_for_player(1)
+		stone_positions[1] = self.get_stones_for_player(-1)
+
+		legal_moves = np.zeros((2, self.side, self.side), dtype=np.ubyte)
+
+		legal_moves[0] = self.get_legal_moves_for_player(1)
+		legal_moves[1] = self.get_legal_moves_for_player(-1)
+
+		liberties = np.zeros((6, self.side, self.side), dtype=np.ubyte)
+
+		liberties[0] = self.get_liberties_as_features_for_player(1, 1)
+		liberties[1] = self.get_liberties_as_features_for_player(1, 2)
+		liberties[2] = self.get_liberties_as_features_for_player(1, 3)
+		liberties[3] = self.get_liberties_as_features_for_player(-1, 1)
+		liberties[4] = self.get_liberties_as_features_for_player(-1, 2)
+		liberties[5] = self.get_liberties_as_features_for_player(-1, 3)
+
+		return stone_positions, legal_moves, liberties
 
 	def get_cell_visits(self):
 		return self.cell_visits

@@ -1,45 +1,26 @@
 
-Just threw everything away because it's been like a year and even an inefficient model would have improved a lot by now.
-So I can just write something like the below and run it when I'm not using the computer and it should just get better and better.
-At the very least, I should be able to check in from time to time and see unambiguous improvement and, sometimes, play against the latest model :D
-Can probably refactor/jigger up the following in the span of a week or so? Could be a nice project in my spare time in September?
-
 todo:
-	- i want to put together a really simple, performant network and i don't mind tracking certain things programmatically
-	- for the architecture, i'm thinking something like this:
-		- inputs:
-			- NxNx5 channels (channels=current black/current white/previous black/previous white/player to move)
-		- body:
-			- residual convolutional stack (maybe 6x96? with squeeze-excitation? do some training experiments)
-		- outputs:
-			- policy head (i like the embedding to categorical output like they have in agz)
-			- value head (predict who will win the game {tanh me=1, opponent=-1?})
-	- training loop:
-		load current model or create a new one
-		while True:
-			start a self-play game:
-				while game.sensible_moves_available_for_at_least_one_player == True:
-					if move_number < area:
-						next_move = tree_search.get_move_after_simulations(simulations=area, weighted_sample_across_all_moves=True)
-					else:
-						next_move = tree_search.get_raw_model_sample(weighted_sample_across_all_moves=True)
-			record game:
-				replay_buffer.submit_new_game(sfg_of_the_game_we_just_played)
-				if replay_buffer.number_of_games(counting_symmetries=False)//1000: (True if we have at least 1000 games stored)
-					training_data = replay_buffer.create_training_dataset(batches=1, samples_per_batch=1024, include_symmetries=True)
-					model.train(training_data)
-					model.save(filename="current_model.h5")
-				if replay_buffer.number_of_games(counting_symmetries=False) % 1000 == 0:
-					model.create_checkpoint(id=replay_buffer.number_of_games(counting_symmetries=False))
-					do a self-play tournament:
-						load existing tournament data, which includes information about all model checkpoints
-						play 1000 games between randomly selected models, favoring recent models, maybe like int(len(models)*(1-random()**2))
-							these games won't use mcts, they'll just do a weighted random sample across all "sensible" moves until nobody has sensible moves left
-							so this should all play out way way faster than the normal self-play games and that's okay because we're just evaluating raw models
-					produce some kind of report (csv?) of the latest state of the model tournaments and who's the strongest and all that
-						i'm thinking about that triangle plot thing that shows which models can beat which other models
-	- then basically just let this run whenever you're not actively using the big computer and it should just get stronger over time
-		at the very least, it should be possible to see that the models are eventually using strategy and stuff
+    - i think i can bootstrap something in a somewhat move-efficient way..? (maybe not compute-efficient...)
+    - on a 9x9 board, start with:
+        - an empty hash table
+        - a randomly initialized 128x10 policy/value network for the tree
+        - a randomly initialized 32x4 policy network for the rollout
+    - in a loop:
+        - start a game:
+            - for each move:
+                select a leaf = recursive(child = avg(hash_table[zobrist_hash], value) + c*policy*(exploration term))
+                use tree policy/value to expand leaf/update parents with value
+                use the rollout policy to finish the game ;D
+                backprop the rollout result (updating hash table in the process)
+            - Note: game advancement in-tree is a random distribution across legal moves, weighted by simulation count
+            - Note: game advancement in-rollout is a random distribution across legal moves, weighted by raw rollout policy
+        - after the game concludes -- by both players running out of sensible moves:
+            - store the original game record
+            - generate symmetries and store separately
+            - generate encoded state/actions and save to file
+            - create a single batch and train both the tree and rollout policies
+        - every 1000 games, save checkpoints for the tree and rollout policies and play 1000 games between the current model and a random other model
+            - save the deets so we can work out elos and stuff
 
 
 
