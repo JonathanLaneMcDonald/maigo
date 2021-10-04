@@ -41,13 +41,16 @@ class MCTS:
 			policy, value = model.predict(features)
 			self.legality = self.game.get_move_legality()
 			self.policy = policy[0] * self.legality
-			self.subtree_value = value[0]
+			self.subtree_value = value[0][0]
 			self.subtree_simulations = 1
 
 	def __init__(self, game_constructor, model):
 		# need handles for the game and play root nodes
 		self.game_root = None
 		self.play_root = None
+
+		# deepest backprop signal depth
+		self.depth = 0
 
 		# what game are we playing?
 		self.game_constructor = game_constructor
@@ -61,44 +64,73 @@ class MCTS:
 		self.expand_and_evaluate(self.play_root, model)
 
 	def backup(self, node, value):
-		walker = node.parent
-		while walker is not None:
+		depth = 0
+		walker = node
+		while walker.parent is not None:
+			depth += 1
+			walker = walker.parent
 			walker.subtree_value += value
 			walker.subtree_simulations += 1
-			walker = node.parent
+		self.depth = max(self.depth, depth)
 
 	def expand_and_evaluate(self, node: Node, model):
 		node.expand_and_evaluate(model)
 		self.backup(node, node.subtree_value)
 
-	def simulate(self, model):
+	def simulate(self, model, iterations=None):
 		"""
 		we'll pick use the UCT equation to recurse down to a leaf, then we'll expand it and backprop the value
 		"""
-		node = self.play_root
+		if iterations is None:
+			iterations = self.game_constructor.get_action_space()
 
-		recursing = True
-		while recursing:
-			scores = {
-				value:move for value, move in [
-					(node.value_of(move), move) for move in range(len(node.children))
-				]
-			}
+		for _ in range(iterations):
+			node = self.play_root
 
-			move = sorted(scores)[-1][1]
+			recursing = True
+			while recursing:
+				scores = {
+					value:move for value, move in [
+						(node.value_of(move), move) for move in range(len(node.children))
+					]
+				}
 
-			if node.children[move] is not None:
-				node = node.children[move]
-			else:
-				new_game = self.game_constructor(node.game)
-				new_game.do_move(move, node.player_to_move)
-				node.children[move] = MCTS.Node(new_game, move, 1 if node.player_to_move == 2 else 2, node)
-				node.children[move].expand_and_evaluate(model)
-				recursing = False
+				move = sorted(scores.items())[-1][1]
 
+				if node.children[move] is not None:
+					node = node.children[move]
+				else:
+					new_game = self.game_constructor(node.game)
+					new_game.do_move(move, node.player_to_move)
+					node.children[move] = MCTS.Node(new_game, move, 1 if node.player_to_move == 2 else 2, node)
+					self.expand_and_evaluate(node.children[move], model)
+					recursing = False
 
+	def play_weighted_random_move(self, top_k=None):
+		if top_k is None:
+			top_k = self.game_constructor.get_action_space()
 
+		simulations = {
+			sims: move for sims, move in [
+				(
+					0 if self.play_root.children[move] is None else self.play_root.children[move].subtree_simulations,
+					move
+				) for move in range(len(self.play_root.children))
+			]
+		}
 
+		simulations = [(sims, move) for sims, move in sorted(simulations.items())[-top_k:]]
+
+		weights = np.array([x[0] for x in simulations], dtype=float)
+		weights /= max(1, sum(weights))
+
+		moves = [x[1] for x in simulations]
+
+		selected_move = choice(moves, p=weights)
+
+		self.play_root = self.play_root.children[selected_move]
+
+		return selected_move
 
 
 

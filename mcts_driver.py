@@ -20,6 +20,10 @@ model = build_agz_model(
 
 tree = MCTS(game_constructor, model)
 
+print("moves: ", end='')
+for i in range(100):
+	tree.simulate(model, iterations=100)
+	print(tree.play_weighted_random_move(), end=' ')
 
 
 
