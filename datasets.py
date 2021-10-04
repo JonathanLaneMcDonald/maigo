@@ -271,7 +271,7 @@ def prepare_dataset_from_mappable(samples, channels):
 		raise Exception("we shouldn't be getting to here")
 
 	features = np.zeros((samples, 19, 19, channels), dtype=np.ubyte)
-	rollouts = np.zeros((samples, 19, 19, 3), dtype=np.ubyte)
+	rollouts = np.zeros((samples, 19, 19, 2), dtype=np.ubyte)
 	policies = np.zeros((samples, 1), dtype=int)
 	values = np.zeros((samples, 1), dtype=int)
 
@@ -300,11 +300,16 @@ if __name__ == "__main__":
 		gonna need some kind of replay buffer, too... this could get really interesting...
 	"""
 
-	slice_size = 2**20
-	convert_dataset_to_memory_mappable(slice_size)
-	exit()
+	"""
+	try splitting up the features in the encode step and just going straight to writing them all to disk
+	(i like this a lot except that i don't know how i'd encode historical moves with this...)
+	"""
 
-	input_channels = 11
+	#slice_size = 2**20
+	#convert_dataset_to_memory_mappable(slice_size)
+	#exit()
+
+	input_channels = 5
 	samples = 2**20
 
 	tree_batch_size = 128
@@ -313,12 +318,12 @@ if __name__ == "__main__":
 
 	rollout_batch_size = 128
 	rollout_policy_blocks = 4
-	rollout_policy_channels = 32
+	rollout_policy_channels = 64
 
 	model = build_agz_model(tree_policy_blocks, tree_policy_channels, input_shape=(19, 19, input_channels))
-	rollout = build_rollout_policy(rollout_policy_blocks, rollout_policy_channels, input_shape=(19, 19, 3))
+	rollout = build_rollout_policy(rollout_policy_blocks, rollout_policy_channels, input_shape=(19, 19, 2))
 
-	for e in range(10):
+	for e in range(100):
 		start_time = time.time()
 		features, rollouts, policies, values = prepare_dataset_from_mappable(samples, input_channels)
 		total_time = time.time() - start_time

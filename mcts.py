@@ -1,68 +1,50 @@
 
-import time
 import numpy as np
-from numpy.random import choice, random
+from numpy.random import choice
 from copy import deepcopy
-from datasets import game_state_to_model_inputs
+
+from board import Board
+
 
 class MCTS:
 
 	class Node:
-		def __init__(self, game_state, completed_move, player_to_move, parent):
+		def __init__(self, game: Board, completed_move, player_to_move, parent):
 			self.parent = parent
 
 			self.completed_move = completed_move
 			self.player_to_move = player_to_move
 
-			self.child_policy = np.zeros(82, dtype=np.float)
-			self.child_value = np.zeros(82, dtype=np.float)
-			self.child_subtree_sims = np.zeros(82, dtype=np.intc)
-			self.child_outstanding_sims = np.zeros(82, dtype=np.intc)
-			self.child_legality = np.zeros(82, dtype=np.intc)
-			self.child_nodes = [None]*82
+			self.subtree_value = 0
+			self.subtree_simulations = 0
 
-			self.game_state = game_state
+			self.policy = np.zeros(game.get_action_space(), dtype=float)
+			self.legality = np.zeros(game.get_action_space(), dtype=int)
+			self.children = [None]*game.get_action_space()
 
-	def __init__(self, game_state, process_id, tasks_from_mcts_to_model, results_from_model_to_mcts):
-		# set up nodes and model
-		self.game_root = MCTS.Node(game_state, None, 1, None)
-		self.play_root = self.game_root
+			self.game_state = game
 
-		# these are more diagnostic
-		self.deepest_leaf = 0
-		self.episode_cell_visits = 0
+	def __init__(self, game, tree_policy, rollout_policy, hash_map):
+		# need handles for the game and play root nodes
+		self.game_root = None
+		self.play_root = None
 
-		self.process_id = process_id
-		self.random_number = int(random()*100_000)
-		self.tasks_to_model = tasks_from_mcts_to_model
-		self.results_from_model = results_from_model_to_mcts
-
-		self.node_lut = {0:self.game_root}
-		self.node_rlut = {self.game_root:0}
+		# these things constitute the model
+		self.tree_policy = tree_policy
+		self.rollout_policy = rollout_policy
+		self.hash_map = hash_map
 
 		# set up game root
-		self.forward_state_for_inference(self.game_root)
+		self.initialize_root(game)
 
-	def get_node_cell_visits(self):
-		return self.play_root.game_state.get_cell_visits()
-
-	def get_episode_cell_visits(self):
-		return self.episode_cell_visits
-
-	def get_recursion_depth(self):
-		return self.deepest_leaf
-
-	def get_outstanding_sims(self):
-		return sum(self.play_root.child_outstanding_sims)
+	def initialize_root(self, game: Board):
+		pass
 
 	def get_value_at_play_root(self):
 		if self.play_root == self.game_root:
 			return 'zero'
 		else:
 			return self.play_root.parent.child_value[self.play_root.completed_move]
-
-	def get_node_count(self):
-		return len(self.node_lut)
 
 	def get_final_score(self):
 		return self.play_root.game_state.get_simple_terminal_score_and_ownership()

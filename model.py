@@ -1,6 +1,6 @@
 
 from keras.models import Model
-from keras.layers import Input, BatchNormalization, Convolution2D, Activation, Add, Dense, Flatten
+from keras.layers import Input, BatchNormalization, Convolution2D, Activation, Add, Dense, Flatten, Dropout
 from keras.optimizers import Adam
 from keras.initializers import RandomNormal
 

@@ -33,6 +33,9 @@ class Board:
 
 		self.setup_neighbors()
 
+	def get_action_space(self):
+		return self.area + 1
+
 	def get_stones_for_player(self, player):
 		features = np.zeros((1, self.side, self.side), dtype=np.ubyte)
 		for r in range(self.side):

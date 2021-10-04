@@ -6,6 +6,8 @@ here, we'll automate the process of starting from a random state and learning fr
 import os
 from tensorflow.keras.models import load_model
 
+from mcts import MCTS
+from board import Board
 from model import build_agz_model, build_rollout_policy
 
 
@@ -53,10 +55,8 @@ def commence_self_play_training():
 
     tree_policy, rollout_policy, zobrist_hashmap = get_latest_model()
 
-    return
-
     while True:
-        mcts = MCTS(game=Go(size=9, komi=6.5), tree_policy=tree_policy, rollout_policy=rollout_policy, hash_map=the_zobrist)
+        mcts = MCTS(game=Board(side=5, komi=0.5), tree_policy=tree_policy, rollout_policy=rollout_policy, hash_map=zobrist_hashmap)
         mcts.play_to_completion(simulations_per_move=81)
         moves = mcts.get_moves()
 

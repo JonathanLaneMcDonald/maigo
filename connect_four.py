@@ -1,4 +1,6 @@
 
+import time
+
 from copy import copy
 import numpy as np
 
@@ -7,8 +9,8 @@ class ConnectFour:
 	let's start with a trivial game with a tiny action space
 	"""
 
-	COLUMNS = 7
-	ROWS = 6
+	COLUMNS = 9
+	ROWS = 9
 
 	class Status:
 		in_progress = 0
@@ -40,8 +42,11 @@ class ConnectFour:
 			return True
 		return False
 
+	def as_linear_features(self):
+		pass
+
 	def as_model_features(self, player_to_move):
-		features = np.zeros((self.COLUMNS, self.ROWS, 3), dtype=int)
+		features = np.zeros((self.COLUMNS, self.ROWS, 3), dtype=np.ubyte)
 		for c in range(self.COLUMNS):
 			for r in range(self.ROWS):
 				if self.grid[c][r] == 1:
@@ -50,6 +55,7 @@ class ConnectFour:
 					features[c][r][1] = 1
 				if player_to_move == 1:
 					features[c][r][2] = 1
+		return features
 
 	def get_legal_moves(self):
 		return [col for col in range(self.COLUMNS) if self.fullness[col] < self.ROWS]
@@ -84,7 +90,7 @@ class ConnectFour:
 		print(np.flip(np.transpose(self.grid), axis=0))
 
 
-from numpy.random import choice
+from numpy.random import choice, random
 
 def play_a_game():
 	cf = ConnectFour()
@@ -111,18 +117,121 @@ def play_a_game():
 
 	return move_count, cf.status
 
+
+class Orchestrator:
+	"""
+	Context:
+		the bottleneck right now is batching for inference. the numbers look like this for a 5x64 (the model size matters like +/- 10%)
+			batch size		features=np.zeros()		features=ConnectFour.as_features()
+			1				44						45
+			16				716						691
+			128				5353					4334
+			256				8903					6300
+			1024			17000					9800
+		so the process of sending a batch to the cpu/gpu for inference has some intrinsic overhead and we need large batch sizes to make it economical
+
+	So the Orchestrator is here to help me automate some of this stuff...
+
+	It'll manage the tree search, then, when a game ends, it'll clean up the tree search, get the moves, submit them to the replay buffer, then start a new game
+	"""
+	...
+
+
+class ModelCoach:
+	"""
+	this is where everything gets tied together
+
+	breakfast of champions:
+		load or initialize a model
+		load or initialize a replay buffer
+
+		batch_size = 128 (or something)
+		checkpoint_frequency = 100 (or whatever)
+
+		initialize an array of [batch_size] Orchestrators
+
+		next_training_target = replay_buffer.size()//batch_size + 1
+		while True (basically):
+			features = np.zeros((batch_size, 8, 8, 3), dtype=np.ubyte)
+			for o in range(len(orchestrators)):
+				features[o] = orchestrators[o].get_next_inference_job()
+
+			inferences = model.predict(features)
+			for o in range(len(orchestrators)):
+				orchestrators[o].do_something_with_this_result()
+
+			if next_training_target <= replay_buffer.size():
+				training_features, training_policies, training_values = replay_buffer.get_training_batch()
+				model.fit(training_features, [training_policies, training_values], verbose=1, batch_size=batch_size, epochs=1)
+				if next_training_target % checkpoint_frequency == 0:
+					model.save(whatever the checkpoint number is)
+					TournamentFacilitator.have_a_tournament(model_prefix="cf model", games=10_000, report_name=f"cf model tournament at {next_training_target}")
+				model.save("current model")
+				next_training_target = replay_buffer.size()//batch_size + 1
+
+	"""
+	...
+
+def tf_test():
+
+	from tensorflow.keras.models import Model
+	from tensorflow.keras.layers import Input, Convolution2D, Convolution1D, BatchNormalization, Flatten, Dense, Reshape
+	from tensorflow.keras.optimizers import Adam
+
+	blocks = 5
+	filters = 64
+	input_shape = (9, 9, 3)
+
+	inputs = Input(shape=input_shape)
+
+	x = inputs
+	for block in range(blocks):
+		x = Convolution2D(filters=filters, kernel_size=(3, 3), padding='same', activation='relu')(x)
+		x = BatchNormalization()(x)
+
+	x = Reshape((9, 9*filters))(x)
+
+	x = Convolution1D(filters=9, kernel_size=1, padding='same', activation='relu')(x)
+
+	x = Flatten()(x)
+
+	outputs = Dense(9, activation='softmax')(x)
+
+	model = Model(inputs, outputs)
+	model.compile(loss='sparse_categorical_crossentropy', optimizer=Adam(), metrics=["accuracy"])
+	model.summary()
+
+	multiplier = 128
+
+	cf = ConnectFour()
+	start_time = time.time()
+	for i in range(2**10):
+		features = np.zeros((multiplier, 9, 9, 3), dtype=np.ubyte)
+		for j in range(multiplier):
+			features[j] = cf.as_model_features(1)
+		prediction = model.predict(features)
+
+		if i and i % 100 == 0:
+			print(i, (multiplier*100)/(time.time()-start_time))
+			start_time = time.time()
+
+
 if __name__ == "__main__":
+
+	#tf_test()
+	#exit()
+
+	start_time = time.time()
 	move_counts = []
 	status = {k:0 for k in range(5)}
-	for i in range(1000000):
+	for i in range(1_000_000_000+1):
 		mv, st = play_a_game()
 		move_counts.append(mv)
 		status[st] += 1
-		if i % 1000 == 0:
-			print(i, status)
+		if i and i % 1_000_000 == 0:
+			print(i, status, i/(time.time()-start_time), sum(move_counts)/(time.time()-start_time))
 	print(np.average(move_counts), np.std(move_counts))
 	print(status)
-
 
 
 
