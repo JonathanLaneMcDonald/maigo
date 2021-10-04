@@ -3,8 +3,9 @@ import time
 
 from copy import copy
 import numpy as np
+from game import TeachableGame
 
-class ConnectFour:
+class ConnectFour(TeachableGame):
 	"""
 	let's start with a trivial game with a tiny action space
 	"""
@@ -19,7 +20,46 @@ class ConnectFour:
 		nobody_wins = 3
 		killed = 4
 
+	@staticmethod
+	def get_feature_dimensions():
+		"""
+		we've got 3 dimensions:
+			columns,
+			rows,
+			feature planes {player 1 pieces, player 2 pieces, player to move}
+		"""
+		return ConnectFour.COLUMNS, ConnectFour.ROWS, 3
+
+	@staticmethod
+	def get_action_space():
+		"""
+		we can place a stone in any column (in principle)
+		"""
+		return ConnectFour.COLUMNS
+
+	def get_state_as_features(self, player_to_move):
+		"""
+		convert state to input features so we can do inference
+		"""
+		features = np.zeros((ConnectFour.COLUMNS, ConnectFour.ROWS, 3), dtype=np.ubyte)
+		for c in range(ConnectFour.COLUMNS):
+			for r in range(ConnectFour.ROWS):
+				if self.grid[c][r] == 1:
+					features[c][r][0] = 1
+				if self.grid[c][r] == 2:
+					features[c][r][1] = 1
+				if player_to_move == 1:
+					features[c][r][2] = 1
+		return features
+
+	def get_move_legality(self):
+		"""
+		tell the caller which moves are legal
+		"""
+		return np.array([1 if self.fullness[col] < ConnectFour.ROWS else 0 for col in range(ConnectFour.COLUMNS)], dtype=int)
+
 	def __init__(self, other=None):
+		super().__init__()
 
 		if other is None:
 			self.grid = np.zeros((self.COLUMNS, self.ROWS), dtype=int)
@@ -42,23 +82,8 @@ class ConnectFour:
 			return True
 		return False
 
-	def as_linear_features(self):
-		pass
-
-	def as_model_features(self, player_to_move):
-		features = np.zeros((self.COLUMNS, self.ROWS, 3), dtype=np.ubyte)
-		for c in range(self.COLUMNS):
-			for r in range(self.ROWS):
-				if self.grid[c][r] == 1:
-					features[c][r][0] = 1
-				if self.grid[c][r] == 2:
-					features[c][r][1] = 1
-				if player_to_move == 1:
-					features[c][r][2] = 1
-		return features
-
 	def get_legal_moves(self):
-		return [col for col in range(self.COLUMNS) if self.fullness[col] < self.ROWS]
+		return [col for col in range(ConnectFour.COLUMNS) if self.fullness[col] < ConnectFour.ROWS]
 
 	def get_travel(self, start_col, start_row, col_delta, row_delta, player, max_steps):
 		player_pieces = 0
@@ -208,7 +233,7 @@ def tf_test():
 	for i in range(2**10):
 		features = np.zeros((multiplier, 9, 9, 3), dtype=np.ubyte)
 		for j in range(multiplier):
-			features[j] = cf.as_model_features(1)
+			features[j] = cf.get_state_as_features(1)
 		prediction = model.predict(features)
 
 		if i and i % 100 == 0:
@@ -224,11 +249,11 @@ if __name__ == "__main__":
 	start_time = time.time()
 	move_counts = []
 	status = {k:0 for k in range(5)}
-	for i in range(1_000_000_000+1):
+	for i in range(1_000_000+1):
 		mv, st = play_a_game()
 		move_counts.append(mv)
 		status[st] += 1
-		if i and i % 1_000_000 == 0:
+		if i and i % 10_000 == 0:
 			print(i, status, i/(time.time()-start_time), sum(move_counts)/(time.time()-start_time))
 	print(np.average(move_counts), np.std(move_counts))
 	print(status)
