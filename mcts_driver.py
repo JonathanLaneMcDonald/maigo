@@ -7,6 +7,7 @@ import time
 from connect_four import ConnectFour
 from mcts import MCTS
 from model import build_agz_model
+from game import GameStatus
 
 blocks = 5
 filters = 64
@@ -19,14 +20,14 @@ model = build_agz_model(
 	policy_options=game_constructor.get_action_space()
 )
 
-tree = MCTS(game_constructor, model)
-
-print("moves: ")
-for i in range(100):
-	start_time = time.time()
-	tree.simulate(None, iterations=1000)
-	print(i, tree.play_weighted_random_move(), int(1000/(time.time() - start_time)), tree.depth)
-
+start_time = time.time()
+for g in range(1000):
+	tree = MCTS(game_constructor, model)
+	while tree.get_tree_status() == GameStatus.in_progress:
+		tree.simulate(None, iterations=10000)
+		_ = tree.play_weighted_random_move()
+		tree.display_play_root()
+	print((g+1)/(time.time()-start_time))
 
 
 

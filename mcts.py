@@ -64,6 +64,12 @@ class MCTS:
 		# set up game root
 		self.initialize_root(game_constructor(), model)
 
+	def get_tree_status(self):
+		return self.play_root.game.get_status()
+
+	def display_play_root(self):
+		self.play_root.game.display()
+
 	def initialize_root(self, game: TeachableGame, model):
 		self.game_root = MCTS.Node(game, -1, 1, None)
 		self.play_root = self.game_root
@@ -98,13 +104,9 @@ class MCTS:
 			recursing = True
 			lookahead_depth = 0
 			while recursing:
-				scores = {
-					value:move for value, move in [
-						(node.value_of(move), move) for move in range(len(node.children))
-					]
-				}
+				scores = [(node.value_of(move), move) for move in range(len(node.children))]
 
-				move = sorted(scores.items())[-1][1]
+				move = sorted(scores)[-1][1]
 
 				lookahead_depth += 1
 				if lookahead_depth == self.max_lookahead:
