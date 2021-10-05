@@ -10,8 +10,8 @@ class ConnectFour(TeachableGame):
 	let's start with a trivial game with a tiny action space
 	"""
 
-	COLUMNS = 9
-	ROWS = 9
+	COLUMNS = 7
+	ROWS = 6
 
 	class Status:
 		in_progress = 0
@@ -106,7 +106,7 @@ class ConnectFour(TeachableGame):
 			1 + self.get_travel(move_col, move_row,-1,+1, player, 3) + self.get_travel(move_col, move_row,+1,-1, player, 3) >= 4:
 			if player == 1:
 				self.status = ConnectFour.Status.player_1_wins
-			elif player == 2:
+			elif player == -1:
 				self.status = ConnectFour.Status.player_2_wins
 
 	def display(self):
@@ -119,8 +119,6 @@ from numpy.random import choice, random
 
 def play_a_game():
 	cf = ConnectFour()
-
-	change = {1:2, 2:1}
 
 	player = 1
 	move_count = 0
@@ -136,7 +134,7 @@ def play_a_game():
 				move_count += 1
 			#print("legal moves:", legal_moves, "weights:", normalized_legal_moves, "selected move:", move, "player:", player)
 			#cf.display()
-			player = change[player]
+			player = -player
 		else:
 			raise Exception("another happening!")
 

@@ -3,6 +3,7 @@
 i'll use this script to try and get a model, a tree search, and a game working together
 """
 
+import time
 from connect_four import ConnectFour
 from mcts import MCTS
 from model import build_agz_model
@@ -20,10 +21,11 @@ model = build_agz_model(
 
 tree = MCTS(game_constructor, model)
 
-print("moves: ", end='')
+print("moves: ")
 for i in range(100):
-	tree.simulate(model, iterations=100)
-	print(tree.play_weighted_random_move(), end=' ')
+	start_time = time.time()
+	tree.simulate(None, iterations=1000)
+	print(i, tree.play_weighted_random_move(), int(1000/(time.time() - start_time)), tree.depth)
 
 
 

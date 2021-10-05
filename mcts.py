@@ -38,10 +38,14 @@ class MCTS:
 
 		def expand_and_evaluate(self, model):
 			features = np.array([self.game.get_state_as_features(self.player_to_move)], dtype=np.ubyte)
-			policy, value = model.predict(features)
 			self.legality = self.game.get_move_legality()
-			self.policy = policy[0] * self.legality
-			self.subtree_value = value[0][0]
+			if model is not None:
+				policy, value = model.predict(features)
+				self.policy = policy[0] * self.legality
+				self.subtree_value = value[0][0]
+			else:
+				self.policy = self.legality
+				self.value = 0
 			self.subtree_simulations = 1
 
 	def __init__(self, game_constructor, model):
@@ -102,7 +106,7 @@ class MCTS:
 				else:
 					new_game = self.game_constructor(node.game)
 					new_game.do_move(move, node.player_to_move)
-					node.children[move] = MCTS.Node(new_game, move, 1 if node.player_to_move == 2 else 2, node)
+					node.children[move] = MCTS.Node(new_game, move, -node.player_to_move, node)
 					self.expand_and_evaluate(node.children[move], model)
 					recursing = False
 
