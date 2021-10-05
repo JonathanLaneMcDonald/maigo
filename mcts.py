@@ -125,7 +125,7 @@ class MCTS:
 					self.backup(node.children[move], node.value_of(move))
 					recursing = False
 
-	def play_weighted_random_move(self, top_k=None):
+	def play_weighted_random_move(self, top_k=None, show_weights=False):
 		if top_k is None:
 			top_k = self.game_constructor.get_action_space()
 
@@ -136,6 +136,9 @@ class MCTS:
 			) for move in range(len(self.play_root.children))
 		]
 
+		if show_weights:
+			print("weights:", simulations, end=' ')
+
 		simulations = [(sims, move) for sims, move in sorted(simulations)[-top_k:]]
 
 		weights = np.array([x[0] for x in simulations], dtype=float)
@@ -144,6 +147,9 @@ class MCTS:
 		moves = [x[1] for x in simulations]
 
 		selected_move = choice(moves, p=weights)
+
+		if show_weights:
+			print("move:", selected_move)
 
 		self.play_root = self.play_root.children[selected_move]
 

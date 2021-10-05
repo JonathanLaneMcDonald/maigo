@@ -21,11 +21,11 @@ model = build_agz_model(
 )
 
 start_time = time.time()
-for g in range(1000):
+for g in range(1):
 	tree = MCTS(game_constructor, model)
 	while tree.get_tree_status() == GameStatus.in_progress:
 		tree.simulate(None, iterations=10000)
-		_ = tree.play_weighted_random_move()
+		_ = tree.play_weighted_random_move(top_k=1, show_weights=True)
 		tree.display_play_root()
 	print((g+1)/(time.time()-start_time))
 
