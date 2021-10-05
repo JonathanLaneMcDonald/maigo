@@ -1,5 +1,13 @@
 
 
+class GameStatus:
+	in_progress = 0
+	player_1_wins = 1
+	player_2_wins = 2
+	nobody_wins = 3
+	killed = 4
+
+
 class TeachableGame:
 
 	@staticmethod
@@ -15,3 +23,10 @@ class TeachableGame:
 
 	def get_move_legality(self):
 		raise Exception("not implemented")
+
+	def get_status(self):
+		raise Exception("not implemented")
+
+	def get_winner(self):
+		raise Exception("not implemented")
+

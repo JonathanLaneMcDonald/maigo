@@ -3,7 +3,7 @@ import time
 
 from copy import copy
 import numpy as np
-from game import TeachableGame
+from game import TeachableGame, GameStatus
 
 class ConnectFour(TeachableGame):
 	"""
@@ -12,13 +12,6 @@ class ConnectFour(TeachableGame):
 
 	COLUMNS = 7
 	ROWS = 6
-
-	class Status:
-		in_progress = 0
-		player_1_wins = 1
-		player_2_wins = 2
-		nobody_wins = 3
-		killed = 4
 
 	@staticmethod
 	def get_feature_dimensions():
@@ -58,13 +51,24 @@ class ConnectFour(TeachableGame):
 		"""
 		return np.array([1 if self.fullness[col] < ConnectFour.ROWS else 0 for col in range(ConnectFour.COLUMNS)], dtype=int)
 
+	def get_status(self):
+		return self.status
+
+	def get_winner(self):
+		if self.status == GameStatus.player_1_wins:
+			return 1
+		elif self.status == GameStatus.player_2_wins:
+			return -1
+		else:
+			return 0
+
 	def __init__(self, other=None):
 		super().__init__()
 
 		if other is None:
 			self.grid = np.zeros((self.COLUMNS, self.ROWS), dtype=int)
 			self.fullness = np.zeros(self.COLUMNS, dtype=int)
-			self.status = ConnectFour.Status.in_progress
+			self.status = GameStatus.in_progress
 		else:
 			self.grid = copy(other.grid)
 			self.fullness = copy(other.fullness)
@@ -77,7 +81,7 @@ class ConnectFour(TeachableGame):
 
 			self.fullness[column] += 1
 			if not len(self.get_legal_moves()):
-				self.status = ConnectFour.Status.nobody_wins
+				self.status = GameStatus.nobody_wins
 
 			return True
 		return False
@@ -105,9 +109,9 @@ class ConnectFour(TeachableGame):
 			1 + self.get_travel(move_col, move_row,-1,-1, player, 3) + self.get_travel(move_col, move_row,+1,+1, player, 3) >= 4 or \
 			1 + self.get_travel(move_col, move_row,-1,+1, player, 3) + self.get_travel(move_col, move_row,+1,-1, player, 3) >= 4:
 			if player == 1:
-				self.status = ConnectFour.Status.player_1_wins
+				self.status = GameStatus.player_1_wins
 			elif player == -1:
-				self.status = ConnectFour.Status.player_2_wins
+				self.status = GameStatus.player_2_wins
 
 	def display(self):
 		print()
@@ -122,7 +126,7 @@ def play_a_game():
 
 	player = 1
 	move_count = 0
-	while cf.status == ConnectFour.Status.in_progress:
+	while cf.status == GameStatus.in_progress:
 		legal_moves = cf.get_legal_moves()
 		if len(legal_moves):
 			normalized_legal_moves = np.array([1 for x in legal_moves]) / len(legal_moves)

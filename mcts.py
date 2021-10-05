@@ -2,7 +2,7 @@
 import numpy as np
 from numpy.random import choice
 
-from game import TeachableGame
+from game import TeachableGame, GameStatus
 
 
 class MCTS:
@@ -16,6 +16,7 @@ class MCTS:
 
 			self.subtree_value = 0
 			self.subtree_simulations = 0
+			self.subtree_truncations = 0 # max_depth exceeded or end_game reached - added to policy to discourage visits
 
 			self.policy = np.zeros(game.get_action_space(), dtype=float)
 			self.legality = np.zeros(game.get_action_space(), dtype=int)
@@ -32,7 +33,7 @@ class MCTS:
 			policy = self.policy[child]
 
 			sqrt_parent_simulations = self.subtree_simulations**0.5
-			child_simulations = 1 + (0 if self.children[child] is None else self.children[child].subtree_simulations)
+			child_simulations = 1 + (0 if self.children[child] is None else self.children[child].subtree_simulations + self.children[child].subtree_truncations)
 
 			return value + policy*(sqrt_parent_simulations/child_simulations)
 
@@ -55,6 +56,7 @@ class MCTS:
 
 		# deepest backprop signal depth
 		self.depth = 0
+		self.max_lookahead = 20
 
 		# what game are we playing?
 		self.game_constructor = game_constructor
@@ -67,19 +69,21 @@ class MCTS:
 		self.play_root = self.game_root
 		self.expand_and_evaluate(self.play_root, model)
 
-	def backup(self, node, value):
+	def backup(self, node, value, search_aborted=False):
 		depth = 0
 		walker = node
 		while walker.parent is not None:
 			depth += 1
 			walker = walker.parent
-			walker.subtree_value += value
-			walker.subtree_simulations += 1
+			if search_aborted:
+				walker.subtree_truncations += 1
+			else:
+				walker.subtree_value += value
+				walker.subtree_simulations += 1
 		self.depth = max(self.depth, depth)
 
 	def expand_and_evaluate(self, node: Node, model):
 		node.expand_and_evaluate(model)
-		self.backup(node, node.subtree_value)
 
 	def simulate(self, model, iterations=None):
 		"""
@@ -92,6 +96,7 @@ class MCTS:
 			node = self.play_root
 
 			recursing = True
+			lookahead_depth = 0
 			while recursing:
 				scores = {
 					value:move for value, move in [
@@ -101,29 +106,35 @@ class MCTS:
 
 				move = sorted(scores.items())[-1][1]
 
-				if node.children[move] is not None:
+				lookahead_depth += 1
+				if lookahead_depth == self.max_lookahead:
+					self.backup(node, value=0, search_aborted=True)
+					recursing = False
+				elif node.game.get_status() != GameStatus.in_progress:
+					self.backup(node, value=node.game.get_winner())
+					recursing = False
+				elif node.children[move] is not None:
 					node = node.children[move]
 				else:
 					new_game = self.game_constructor(node.game)
 					new_game.do_move(move, node.player_to_move)
 					node.children[move] = MCTS.Node(new_game, move, -node.player_to_move, node)
 					self.expand_and_evaluate(node.children[move], model)
+					self.backup(node.children[move], node.value_of(move))
 					recursing = False
 
 	def play_weighted_random_move(self, top_k=None):
 		if top_k is None:
 			top_k = self.game_constructor.get_action_space()
 
-		simulations = {
-			sims: move for sims, move in [
-				(
-					0 if self.play_root.children[move] is None else self.play_root.children[move].subtree_simulations,
-					move
-				) for move in range(len(self.play_root.children))
-			]
-		}
+		simulations = [
+			(
+				0 if self.play_root.children[move] is None else self.play_root.children[move].subtree_simulations,
+				move
+			) for move in range(len(self.play_root.children))
+		]
 
-		simulations = [(sims, move) for sims, move in sorted(simulations.items())[-top_k:]]
+		simulations = [(sims, move) for sims, move in sorted(simulations)[-top_k:]]
 
 		weights = np.array([x[0] for x in simulations], dtype=float)
 		weights /= max(1, sum(weights))
