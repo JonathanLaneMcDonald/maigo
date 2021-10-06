@@ -62,6 +62,30 @@ class ConnectFour(TeachableGame):
 		else:
 			return 0
 
+	def copy(self):
+		return ConnectFour(self)
+
+	def complete_as_rollout(self, player_to_move):
+		game = self.copy()
+		while game.status == GameStatus.in_progress:
+			legal_moves = game.get_legal_moves()
+			if len(legal_moves):
+				normalized_legal_moves = np.array([1 for x in legal_moves]) / len(legal_moves)
+				move = choice(legal_moves, p=normalized_legal_moves)
+				success = game.do_move(move, player_to_move)
+				if not success:
+					raise Exception("failed to play a move!")
+				player_to_move = -player_to_move
+			else:
+				raise Exception("there's no legal moves!")
+
+		if game.status == GameStatus.player_1_wins:
+			return 1
+		elif game.status == GameStatus.player_2_wins:
+			return -1
+		else:
+			return 0
+
 	def __init__(self, other=None):
 		super().__init__()
 
@@ -121,83 +145,29 @@ class ConnectFour(TeachableGame):
 
 from numpy.random import choice, random
 
-def play_a_game():
-	cf = ConnectFour()
+def rollout_test(simulations):
+
+	game = ConnectFour()
 
 	player = 1
-	move_count = 0
-	while cf.status == GameStatus.in_progress:
-		legal_moves = cf.get_legal_moves()
+	while game.status == GameStatus.in_progress:
+		legal_moves = game.get_legal_moves()
 		if len(legal_moves):
-			normalized_legal_moves = np.array([1 for x in legal_moves]) / len(legal_moves)
-			move = choice(legal_moves, p=normalized_legal_moves)
-			success = cf.do_move(move, player)
-			if not success:
-				raise Exception("a happening!")
-			else:
-				move_count += 1
-			#print("legal moves:", legal_moves, "weights:", normalized_legal_moves, "selected move:", move, "player:", player)
-			#cf.display()
+			victories = {1:{x:0 for x in legal_moves}, -1:{x:0 for x in legal_moves}}
+			for s in range(simulations[player]):
+				move = legal_moves[int(random()*len(legal_moves))]
+				game_copy = game.copy()
+				game_copy.do_move(move, player)
+				winner = game_copy.complete_as_rollout(-player)
+				if winner in victories:
+					victories[winner][move] += 1
+			win_ratios = {x:victories[player][x]/(victories[1][x] + victories[-1][x]) for x in legal_moves}
+			best_move = sorted([(wr, mv) for mv, wr in win_ratios.items()])[-1][1]
+			game.do_move(best_move, player)
 			player = -player
-		else:
-			raise Exception("another happening!")
-
-	return move_count, cf.status
-
-
-class Orchestrator:
-	"""
-	Context:
-		the bottleneck right now is batching for inference. the numbers look like this for a 5x64 (the model size matters like +/- 10%)
-			batch size		features=np.zeros()		features=ConnectFour.as_features()
-			1				44						45
-			16				716						691
-			128				5353					4334
-			256				8903					6300
-			1024			17000					9800
-		so the process of sending a batch to the cpu/gpu for inference has some intrinsic overhead and we need large batch sizes to make it economical
-
-	So the Orchestrator is here to help me automate some of this stuff...
-
-	It'll manage the tree search, then, when a game ends, it'll clean up the tree search, get the moves, submit them to the replay buffer, then start a new game
-	"""
-	...
-
-
-class ModelCoach:
-	"""
-	this is where everything gets tied together
-
-	breakfast of champions:
-		load or initialize a model
-		load or initialize a replay buffer
-
-		batch_size = 128 (or something)
-		checkpoint_frequency = 100 (or whatever)
-
-		initialize an array of [batch_size] Orchestrators
-
-		next_training_target = replay_buffer.size()//batch_size + 1
-		while True (basically):
-			features = np.zeros((batch_size, 8, 8, 3), dtype=np.ubyte)
-			for o in range(len(orchestrators)):
-				features[o] = orchestrators[o].get_next_inference_job()
-
-			inferences = model.predict(features)
-			for o in range(len(orchestrators)):
-				orchestrators[o].do_something_with_this_result()
-
-			if next_training_target <= replay_buffer.size():
-				training_features, training_policies, training_values = replay_buffer.get_training_batch()
-				model.fit(training_features, [training_policies, training_values], verbose=1, batch_size=batch_size, epochs=1)
-				if next_training_target % checkpoint_frequency == 0:
-					model.save(whatever the checkpoint number is)
-					TournamentFacilitator.have_a_tournament(model_prefix="cf model", games=10_000, report_name=f"cf model tournament at {next_training_target}")
-				model.save("current model")
-				next_training_target = replay_buffer.size()//batch_size + 1
-
-	"""
-	...
+			print('*'*80)
+			print(win_ratios, best_move)
+			game.display()
 
 def tf_test():
 
@@ -244,6 +214,10 @@ def tf_test():
 
 
 if __name__ == "__main__":
+
+	rollout_test({1:1000, -1:1000})
+	exit()
+
 
 	#tf_test()
 	#exit()

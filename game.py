@@ -30,3 +30,8 @@ class TeachableGame:
 	def get_winner(self):
 		raise Exception("not implemented")
 
+	def copy(self):
+		raise Exception("not implemented")
+
+	def complete_as_rollout(self, player_to_move):
+		raise Exception("not implemented")

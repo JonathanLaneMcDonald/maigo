@@ -6,6 +6,7 @@ i'll use this script to try and get a model, a tree search, and a game working t
 import time
 from connect_four import ConnectFour
 from mcts import MCTS
+from traditional_mcts import TraditionalMCTS
 from model import build_agz_model
 from game import GameStatus
 
@@ -22,9 +23,9 @@ model = build_agz_model(
 
 start_time = time.time()
 for g in range(1):
-	tree = MCTS(game_constructor, model)
+	tree = TraditionalMCTS(game_constructor)
 	while tree.get_tree_status() == GameStatus.in_progress:
-		tree.simulate(None, iterations=10000)
+		tree.simulate(iterations=10000)
 		_ = tree.play_weighted_random_move(top_k=1, show_weights=True)
 		tree.display_play_root()
 	print((g+1)/(time.time()-start_time))
