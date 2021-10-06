@@ -1,4 +1,34 @@
 
+todo: in the short term, in preparation for rlgo
+	- using 7x6 connect four as the test case:
+		build a traditional mcts with rollouts and a simple UCT equation -- maybe zobrist hashing ;)
+			use this to demonstrate the logical correctness of the tree search in the first place...
+			then use it to generate a bunch of training data
+		use this training data to train a model so i can test that my model is able to learn what it needs to
+		next, incorporate the model into the tree search and do some integration testing
+		finally, train a model AGZ-style
+			measure improvement over time,
+			try fiddling with stuff to get the settings right
+		set up tournaments between vanilla mcts with x playouts where x in {100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000} simulations
+		vs
+		the self-play neural net agent checkpoints with a standard lookahead of like {10, 20, 50} simulations
+		so i guess this means it's going to take a minute to do these tournaments:
+			vanilla mcts agents = {100, 200, 500} x {1, 10, 100} for a total of 9 vanilla mcts policies
+			vs
+			every model checkpoint (one every 1000 training batches? == 128k games) x {10, 20, 50} simulations
+			so i guess every 1000 training batches, i'm going to pause for like an hour while i do all these ranking games, lol
+		set up a feature store that the replay buffer uses and commit new features to it so they can be read back quickly (include symmetries)
+	- after all this, update "Board" so it's a proper implementation of the Game interface
+	- start self-training with:
+		5x5 - and keep it going until you see some progress
+		7x7 - and keep that going until there's progress
+		9x9 - start trying to play against this one as it improves and, once this one can beat me,
+		13x13 - same thing, until it's able to consistently beat me
+		19x19
+		with each of these: 9x9, 13x13, 19x19, the state/models/feature stores will be versioned and saved so they can just be restarted easy peasy
+
+
+
 todo:
     - i think i can bootstrap something in a somewhat move-efficient way..? (maybe not compute-efficient...)
     - on a 9x9 board, start with:
