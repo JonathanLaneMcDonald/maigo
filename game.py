@@ -21,7 +21,10 @@ class TeachableGame:
 	def get_state_as_features(self, player_to_move):
 		raise Exception("not implemented")
 
-	def get_move_legality(self):
+	def get_move_legality(self, player):
+		raise Exception("not implemented")
+
+	def get_legal_moves(self, player):
 		raise Exception("not implemented")
 
 	def get_status(self):
@@ -34,4 +37,10 @@ class TeachableGame:
 		raise Exception("not implemented")
 
 	def complete_as_rollout(self, player_to_move):
+		raise Exception("not implemented")
+
+	def zobrist_hash(self):
+		raise Exception("not implemented")
+
+	def zobrist_hash_for_child(self, move, player):
 		raise Exception("not implemented")
