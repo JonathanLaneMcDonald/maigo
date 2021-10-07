@@ -163,7 +163,8 @@ def graph_test(simulations):
 	def register_state(state_library, parent, game):
 		child = game.zobrist_hash()
 		if child in state_library:
-			state_library[child]["parents"].add(parent)
+			#state_library[child]["parents"].add(parent)
+			pass
 		else:
 			state_library[child] = {
 				"game": game,
@@ -249,13 +250,13 @@ def graph_test(simulations):
 		move = choice(moves, p=weights)
 		move_stack.append(move)
 		current_root = state_library[current_root]["children"][player][move]
-		state_library[current_root]["game"].display()
-		player = -player
 		print('*'*80)
+		print(move_stack)
 		print(list(weights))
 		print(visits)
 		print(move)
-		print(game.zobrist_hash())
+		state_library[current_root]["game"].display()
+		player = -player
 
 
 
