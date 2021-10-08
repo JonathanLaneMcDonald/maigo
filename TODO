@@ -1,4 +1,17 @@
 
+todo: very short term
+	- looks like i've got a good mcts solution made, now i want to:
+		- create a Policy interface
+		- create something that takes a Game and two Policies
+			- play a tournament between vanilla mcts playing with {100, 200, 500, 1000, 2000, 5000, 10000} rollouts per move (random proportional)
+				this will help with sanity checking
+		- create a replay buffer to train a model and play with different architectures and stuff
+
+
+
+
+
+
 todo: in the short term, in preparation for rlgo
 	- using 7x6 connect four as the test case:
 		build a traditional mcts with rollouts and a simple UCT equation -- maybe zobrist hashing ;)

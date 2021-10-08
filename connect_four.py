@@ -337,31 +337,157 @@ def tf_test():
 			print(i, (multiplier*100)/(time.time()-start_time))
 			start_time = time.time()
 
+def play_games_with_models(games, model):
+
+	trained_model_victories = 0
+	random_model_victories = 0
+	for g in range(games+1):
+
+		player_map = {}
+		if random() < 0.50:
+			player_map = {1: "random", -1: "model"}
+		else:
+			player_map = {1: "model", -1: "random"}
+
+		player = 1
+		game = ConnectFour()
+		while game.status == GameStatus.in_progress:
+			legal_moves = game.get_legal_moves(player)
+
+			# start with random selection (this will be right half the time :D)
+			move = choice(legal_moves)
+			if player_map[player] == "model":
+				features = np.array([game.get_state_as_features(player)], dtype=np.ubyte)
+				policy, value = model.predict(features)
+				move_legality = game.get_move_legality(player)
+				weighted_legal_moves = np.array([x*y for x,y in zip(policy[0], move_legality)], dtype=float)
+				weighted_legal_moves /= max(weighted_legal_moves)
+				weighted_legal_moves **= 2
+				weighted_legal_moves /= sum(weighted_legal_moves)
+				moves = list(range(len(weighted_legal_moves)))
+				move = choice(moves, p=weighted_legal_moves)
+
+			game.do_move(move, player)
+			player = -player
+
+		if game.status in {GameStatus.player_1_wins, GameStatus.player_2_wins}:
+			winner = 1 if game.status == GameStatus.player_1_wins else -1
+			if player_map[winner] == "model":
+				trained_model_victories += 1
+			elif player_map[winner] == "random":
+				random_model_victories += 1
+			else:
+				print("something confusing is happening because nobody won?")
+
+		if g % 100 == 0:
+			print("model wins:", trained_model_victories, "random policy wins:", random_model_victories)
+
+	return trained_model_victories / (trained_model_victories + random_model_victories)
+
+
+def train_on_games():
+	"""
+	look in local directory for games,
+	convert each game to state-action pairs,
+	build a simple model,
+	try to train it ;)
+
+	later:
+		set up a function that can play two models against each other just using raw policies and play like a bunch of games
+		hopefully, the model that's trained will be the clear winner!
+	"""
+
+	import os
+	from tqdm import tqdm
+	from numpy.random import permutation
+
+	from model import build_tree_policy
+
+	known_games = []
+	for f in [x for x in sorted(os.listdir('./')) if len(x) == 10 and x.isdigit()]:
+		known_games += [x for x in open(f,'r').read().split('\n') if x.find('::') != -1]
+
+	features = []
+	policy = []
+	value = []
+	print("replaying games to create dataset")
+	for line in tqdm(range(len(known_games))):
+		moves = [int(x) for x in known_games[line].split('::')[0].split()]
+		outcome = int(known_games[line].split('::')[1])
+
+		player = 1
+		game = ConnectFour()
+		for mv in moves:
+			features.append(game.get_state_as_features(player))
+			policy.append(mv)
+			value.append(outcome)
+
+			game.do_move(mv, player)
+			player = -player
+
+	features = np.array(features, dtype=np.ubyte)
+	policy = np.array(policy, dtype=int)
+	value = np.array(value, dtype=int)
+
+	print("features:",features.shape)
+	print("policies:",policy.shape)
+	print("values:",value.shape)
+
+	sbox = permutation(list(range(features.shape[0])))
+
+	p_features = np.zeros(features.shape, dtype=np.ubyte)
+	p_policy = np.zeros(policy.shape, dtype=int)
+	p_value = np.zeros(value.shape, dtype=int)
+
+	print("permuting dataset")
+	for s in tqdm(range(len(sbox))):
+		p_features[s] = features[sbox[s]]
+		p_policy[s] = policy[sbox[s]]
+		p_value[s] = value[sbox[s]]
+
+	model = build_tree_policy(
+		blocks=4,
+		filters=32,
+		input_shape=ConnectFour.get_feature_dimensions(),
+		policy_options=ConnectFour.get_action_space(),
+		value_options=5
+	)
+
+	history = []
+	for e in range(10):
+		history.append(play_games_with_models(games=1000, model=model))
+		print(history)
+		model.fit(p_features, [p_policy, p_value], verbose=1, batch_size=128, epochs=1, validation_split=0.10)
 
 if __name__ == "__main__":
 
-	#rollout_test({1:10000, -1:10000})
-	for _ in range(10_000):
-		simulations = 1000
-		moves, end_game_status = tree_test({1:simulations, -1:simulations})
-		print(' '.join([str(x) for x in moves]) + '::' + str(end_game_status))
+	"""
+	from model import build_tree_policy
+
+	play_games_with_models(
+		1000,
+		build_tree_policy(
+			blocks=4,
+			filters=32,
+			input_shape=ConnectFour.get_feature_dimensions(),
+			policy_options=ConnectFour.get_action_space(),
+			value_options=5
+		)
+	)
+	exit()
+	"""
+
+	train_on_games()
 	exit()
 
-
-	#tf_test()
-	#exit()
+	import time
 
 	start_time = time.time()
-	move_counts = []
-	status = {k:0 for k in range(5)}
-	for i in range(1_000_000+1):
-		mv, st = play_a_game()
-		move_counts.append(mv)
-		status[st] += 1
-		if i and i % 10_000 == 0:
-			print(i, status, i/(time.time()-start_time), sum(move_counts)/(time.time()-start_time))
-	print(np.average(move_counts), np.std(move_counts))
-	print(status)
-
-
+	save = open(str(int(start_time)), "w")
+	for _ in range(100_000):
+		simulations = 100
+		moves, end_game_status = tree_test({1: simulations, -1: simulations})
+		print(' '.join([str(x) for x in moves]) + '::' + str(end_game_status))
+		save.write(' '.join([str(x) for x in moves]) + '::' + str(end_game_status) + '\n')
+	exit()
 
