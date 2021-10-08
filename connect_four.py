@@ -155,110 +155,99 @@ class ConnectFour(TeachableGame):
 
 from numpy.random import choice, random
 
-def graph_test(simulations):
-	"""
-	i'm going to try and implement the graph thing i was talking about
-	"""
+def tree_test(simulations, random_proportional=True):
 
-	def register_state(state_library, parent, game):
+	class Node:
+		def __init__(self, game: TeachableGame):
+			self.game = game.copy()
+			self.visits = 0
+			self.victories = {x: 0 for x in {-1, 0, 1}}
+			self.children = {p: {mv: game.zobrist_hash_for_child(mv, p) for mv in game.get_legal_moves(p)} for p in {-1, 1}}
+
+	def register_state(state_library, game):
 		child = game.zobrist_hash()
-		if child in state_library:
-			#state_library[child]["parents"].add(parent)
-			pass
-		else:
-			state_library[child] = {
-				"game": game,
-				"parents": {parent},
-				"children": {
-					1: {x: game.zobrist_hash_for_child(x, 1) for x in [y for y in game.get_legal_moves(1)]},
-					-1:{x: game.zobrist_hash_for_child(x, -1) for x in [y for y in game.get_legal_moves(-1)]}
-				},
-				"visits": 0,
-				"victories": {
-					0: 0,
-					1: 0,
-					-1: 0
-				}
-			}
+		if child not in state_library:
+			state_library[child] = Node(game)
 		return child
 
 	def recurse_to_leaf(state_library, current_root, player_to_move, broadcast_recipients, current_depth, depth_limit):
-		"""
-		look at all the legal moves to see which branch to traverse.
-		once you've found one, check to see if the child is in the state_library
-		if it is, then recurse again,
-		if it is not, then return the current_root, the player, the move, and the broadcast_recipients
-		"""
+		# the current node needs to know about the result of this evaluation
+		broadcast_recipients.add(current_root)
+
 		current_node = state_library[current_root]
 
-		# whatever happens, we need to let our broadcast_recipients know
-		for p in current_node["parents"]:
-			broadcast_recipients.add(p)
-
-		legal_moves = current_node["children"][player_to_move].keys()
+		legal_moves = current_node.children[player_to_move].keys()
 
 		values = {}
 		for x in legal_moves:
-			if current_node["children"][player_to_move][x] in state_library:
-				child = state_library[current_node["children"][player_to_move][x]]
-				values[x] = \
-					child["victories"][player_to_move]/(1+child["victories"][1]+child["victories"][-1]) + \
-					(current_node["visits"]**0.5)/(1+child["victories"][1]+child["victories"][-1])
+			if current_node.children[player_to_move][x] in state_library:
+				child = state_library[current_node.children[player_to_move][x]]
+				values[x] = child.victories[player_to_move]/(1+child.visits) + (current_node.visits**0.5)/(1+child.visits)
 			else:
-				values[x] = current_node["visits"]**0.5
+				values[x] = current_node.visits**0.5
 
 		move = sorted([(wr, mv) for mv, wr in values.items()])[-1][1]
 
-		next_root_hash = current_node["children"][player_to_move][move]
+		next_root_hash = current_node.children[player_to_move][move]
 
-		if next_root_hash in state_library and state_library[next_root_hash]["game"].status == GameStatus.in_progress and current_depth < depth_limit:
+		if next_root_hash in state_library and state_library[next_root_hash].game.status == GameStatus.in_progress and current_depth < depth_limit:
 			return recurse_to_leaf(state_library, next_root_hash, -player_to_move, broadcast_recipients, current_depth+1, depth_limit)
 		else:
+			broadcast_recipients.add(next_root_hash)
 			return current_root, player_to_move, move, broadcast_recipients
 
 	game = ConnectFour()
 	state_library = {}
-	register_state(state_library, game.zobrist_hash(), game)
+	register_state(state_library, game)
 	current_root = game.zobrist_hash()
 
 	player = 1
 	move_stack = []
-	while state_library[current_root]["game"].status == GameStatus.in_progress:
+	while state_library[current_root].game.status == GameStatus.in_progress:
 		# do some simulations to figure out what move to play
 		for s in range(simulations[player]):
 			recurse_root, player_to_move, move, broadcast_recipients = recurse_to_leaf(state_library, current_root, player, set(), 0, 10)
 
-			new_game = state_library[recurse_root]["game"].copy()
+			new_game = state_library[recurse_root].game.copy()
 			new_game.do_move(move, player_to_move)
-			leaf = register_state(state_library, recurse_root, new_game)
+			leaf = register_state(state_library, new_game)
 
 			broadcast_recipients.add(leaf)
 
-			rollout_result = state_library[leaf]["game"].complete_as_rollout(-player_to_move)
+			rollout_result = state_library[leaf].game.complete_as_rollout(-player_to_move)
 
 			for br in broadcast_recipients:
-				state_library[br]["visits"] += 1
-				state_library[br]["victories"][rollout_result] += 1
+				state_library[br].visits += 1
+				state_library[br].victories[rollout_result] += 1
 
 		# select move ;P
-		visits = {mv: 0 if h not in state_library else state_library[h]["visits"] for mv, h in state_library[current_root]["children"][player].items()}
-		moves = [k for k, v in sorted(visits.items())]
-		weights = np.array([v for k, v in sorted(visits.items())], dtype=float)
-		weights /= max(weights)
-		weights **= 2
-		weights /= sum(weights)
-		move = choice(moves, p=weights)
+		visits = {mv: 0 if h not in state_library else state_library[h].visits for mv, h in state_library[current_root].children[player].items()}
+		move = sorted([(wr, mv) for mv, wr in visits.items()])[-1][1]
+
+		weights = []
+		if random_proportional:
+			moves = [k for k, v in sorted(visits.items())]
+			weights = np.array([v for k, v in sorted(visits.items())], dtype=float)
+			weights /= max(weights)
+			weights **= 2
+			weights /= sum(weights)
+			move = choice(moves, p=weights)
+
 		move_stack.append(move)
-		current_root = state_library[current_root]["children"][player][move]
+		current_root = state_library[current_root].children[player][move]
+		'''
 		print('*'*80)
+		print(len(state_library),"states in library")
 		print(move_stack)
-		print(list(weights))
-		print(visits)
+		if random_proportional:
+			print(list(weights))
+		print(visits, sum(visits.values()), "visits to this node")
 		print(move)
-		state_library[current_root]["game"].display()
+		state_library[current_root].game.display()
+		'''
 		player = -player
 
-
+	return move_stack, state_library[current_root].game.status
 
 
 def rollout_test(simulations):
@@ -352,7 +341,10 @@ def tf_test():
 if __name__ == "__main__":
 
 	#rollout_test({1:10000, -1:10000})
-	graph_test({1:10000, -1:10000})
+	for _ in range(10_000):
+		simulations = 1000
+		moves, end_game_status = tree_test({1:simulations, -1:simulations})
+		print(' '.join([str(x) for x in moves]) + '::' + str(end_game_status))
 	exit()
 
 
