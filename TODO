@@ -1,9 +1,10 @@
 
 todo:
 	I've demonstrated:
-		working mcts
-		a replay buffer that can load games and generate datasets
-		a tournament thingie that can have different policies play against each other
+		working mcts - this needs to be factored out into a class...
+		a replay buffer that can load games and generate datasets - this needs to be refactored...
+		a tournament thingie that can have different policies play against each other - needs to be refactored...
+		* the mcts and the tournament thingie can benefit from a Policy interface
 	what i'd like to do today(?):
 		modify mcts to take model inputs
 		copy/pasta that self-play function to use models with mcts,
