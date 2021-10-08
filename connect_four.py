@@ -446,8 +446,8 @@ def train_on_games():
 		p_value[s] = value[sbox[s]]
 
 	model = build_tree_policy(
-		blocks=4,
-		filters=32,
+		blocks=5,
+		filters=64,
 		input_shape=ConnectFour.get_feature_dimensions(),
 		policy_options=ConnectFour.get_action_space(),
 		value_options=5

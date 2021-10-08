@@ -1,10 +1,30 @@
 
+todo:
+	I've demonstrated:
+		working mcts
+		a replay buffer that can load games and generate datasets
+		a tournament thingie that can have different policies play against each other
+	what i'd like to do today(?):
+		modify mcts to take model inputs
+		copy/pasta that self-play function to use models with mcts,
+		play games with ${action space} simulations per move,
+		store the games,
+		every 128 games, load the most recent 1024 games and make a single training batch
+		every 128 training batches (16384 games), save a model checkpoint
+		when a model checkpoint is saved, play a tournament with 100 games per policy,
+			selecting random policies to act as random players (1 or -1) and making weighted random moves according to their raw policies
+		at that point, it's basically live... that's cool.
+		then i basically spend ages "engineering" it into an actual solution, testing, automating, etc. lol
+
+
+
+
+
 todo: very short term
 	- looks like i've got a good mcts solution made, now i want to:
 		- create a Policy interface
+		- create a new version of the mcts that can accept models
 		- create something that takes a Game and two Policies
-			- play a tournament between vanilla mcts playing with {100, 200, 500, 1000, 2000, 5000, 10000} rollouts per move (random proportional)
-				this will help with sanity checking
 		- create a replay buffer to train a model and play with different architectures and stuff
 
 
