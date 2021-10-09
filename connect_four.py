@@ -31,6 +31,10 @@ class ConnectFour(TeachableGame):
 		"""
 		return ConnectFour.COLUMNS
 
+	@staticmethod
+	def get_name():
+		return f"ConnectFour_{ConnectFour.COLUMNS}x{ConnectFour.ROWS}"
+
 	def get_state_as_features(self, player_to_move):
 		"""
 		convert state to input features so we can do inference
