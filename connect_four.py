@@ -195,7 +195,7 @@ def model_enabled_tree_test(simulations, state_library, model, random_proportion
 				child = state_library[current_node.children[player_to_move][x]]
 				values[x] = \
 					child.value[value_category]/(1 + child.visits) + \
-					child.policy[player_to_move][x]*((current_node.visits/(1 + child.visits + child.awaiting))**0.5) + \
+					child.policy[player_to_move][x]*((current_node.visits**0.5)/(1 + child.visits + child.awaiting)) + \
 					random()/(1 + child.visits)**0.5
 			else:
 				values[x] = \
@@ -509,8 +509,9 @@ if __name__ == "__main__":
 
 	from model import build_tree_policy
 
-	batch_size = 128
-	simulations = 128
+	batches = 32
+	batch_size = 32
+	simulations = 32
 	model = build_tree_policy(
 		blocks=4,
 		filters=32,
@@ -524,6 +525,7 @@ if __name__ == "__main__":
 	start_time = time.time()
 	state_library = {}
 	save = open(str(int(start_time)), "w")
+	history = []
 	for _ in range(1_000_000):
 		moves, end_game_status = model_enabled_tree_test({1: simulations, -1: simulations}, state_library, model)
 		if _ % 1 == 0:
@@ -532,9 +534,11 @@ if __name__ == "__main__":
 		save.write(' '.join([str(x) for x in moves]) + '::' + str(end_game_status) + '\n')
 		save.flush()
 
-		if _ and _ % batch_size == 0:
-			features, policy, value = create_dataset(batch_size=batch_size)
+		if _ and _ % (batch_size*batches) == 0:
+			features, policy, value = create_dataset(most_recent_k=10*batch_size*batches, batch_size=batch_size*batches)
 			model.fit(features, [policy, value], verbose=1, batch_size=batch_size, epochs=1)
+			history.append(play_games_with_models(games=1000, model=model))
+			print(history)
 			state_library = {}
 
 		if len(state_library) > 1_000_000:
