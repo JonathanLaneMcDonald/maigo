@@ -159,7 +159,7 @@ class ConnectFour(TeachableGame):
 
 from numpy.random import choice, random
 
-def tree_test(simulations, random_proportional=True):
+def tree_test(simulations, state_library, random_proportional=True):
 
 	class Node:
 		def __init__(self, game: TeachableGame):
@@ -186,9 +186,9 @@ def tree_test(simulations, random_proportional=True):
 		for x in legal_moves:
 			if current_node.children[player_to_move][x] in state_library:
 				child = state_library[current_node.children[player_to_move][x]]
-				values[x] = child.victories[player_to_move]/(1+child.visits) + (current_node.visits**0.5)/(1+child.visits)
+				values[x] = child.victories[player_to_move]/(1+child.visits) + (current_node.visits**0.5)/(1+child.visits) + random()/((1+child.visits)**0.5)
 			else:
-				values[x] = current_node.visits**0.5
+				values[x] = current_node.visits**0.5 + random()
 
 		move = sorted([(wr, mv) for mv, wr in values.items()])[-1][1]
 
@@ -201,7 +201,6 @@ def tree_test(simulations, random_proportional=True):
 			return current_root, player_to_move, move, broadcast_recipients
 
 	game = ConnectFour()
-	state_library = {}
 	register_state(state_library, game)
 	current_root = game.zobrist_hash()
 
@@ -210,7 +209,7 @@ def tree_test(simulations, random_proportional=True):
 	while state_library[current_root].game.status == GameStatus.in_progress:
 		# do some simulations to figure out what move to play
 		for s in range(simulations[player]):
-			recurse_root, player_to_move, move, broadcast_recipients = recurse_to_leaf(state_library, current_root, player, set(), 0, 10)
+			recurse_root, player_to_move, move, broadcast_recipients = recurse_to_leaf(state_library, current_root, player, set(), 0, 50)
 
 			new_game = state_library[recurse_root].game.copy()
 			new_game.do_move(move, player_to_move)
@@ -232,10 +231,10 @@ def tree_test(simulations, random_proportional=True):
 		if random_proportional:
 			moves = [k for k, v in sorted(visits.items())]
 			weights = np.array([v for k, v in sorted(visits.items())], dtype=float)
-			weights /= max(weights)
-			weights **= 2
 			weights /= sum(weights)
 			move = choice(moves, p=weights)
+
+		#print(visits,'->',move)
 
 		move_stack.append(move)
 		current_root = state_library[current_root].children[player][move]
@@ -363,8 +362,8 @@ def train_on_games():
 		p_value[s] = value[sbox[s]]
 
 	model = build_tree_policy(
-		blocks=5,
-		filters=64,
+		blocks=4,
+		filters=32,
 		input_shape=ConnectFour.get_feature_dimensions(),
 		policy_options=ConnectFour.get_action_space(),
 		value_options=5
@@ -372,9 +371,9 @@ def train_on_games():
 
 	history = []
 	for e in range(10):
+		model.fit(p_features, [p_policy, p_value], verbose=1, batch_size=1024, epochs=1, validation_split=0.10)
 		history.append(play_games_with_models(games=1000, model=model))
 		print(history)
-		model.fit(p_features, [p_policy, p_value], verbose=1, batch_size=128, epochs=1, validation_split=0.10)
 
 if __name__ == "__main__":
 
@@ -400,11 +399,20 @@ if __name__ == "__main__":
 	import time
 
 	start_time = time.time()
+	state_library = {}
 	save = open(str(int(start_time)), "w")
-	for _ in range(100_000):
-		simulations = 100
-		moves, end_game_status = tree_test({1: simulations, -1: simulations})
-		print(' '.join([str(x) for x in moves]) + '::' + str(end_game_status))
+	for _ in range(1_000_000):
+		simulations = 1
+		moves, end_game_status = tree_test({1: simulations, -1: simulations}, state_library)
+		if _ % 100 == 0:
+			print(' '.join([str(x) for x in moves]) + '::' + str(end_game_status), "state_library:",len(state_library))
 		save.write(' '.join([str(x) for x in moves]) + '::' + str(end_game_status) + '\n')
+
+		if len(state_library) > 1_000_000:
+			for_removal = {k for k, v in state_library.items() if v.visits < 10}
+			print(len(for_removal),"/",len(state_library),"nodes marked for removal", end='->')
+			for key in for_removal:
+				state_library.pop(key)
+			print(len(state_library),"keys remaining in state_library")
 	exit()
 
