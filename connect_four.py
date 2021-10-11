@@ -159,6 +159,112 @@ class ConnectFour(TeachableGame):
 
 from numpy.random import choice, random
 
+def model_enabled_tree_test(simulations, state_library, model, random_proportional=True):
+
+	class Node:
+		def __init__(self, game: TeachableGame):
+			self.game = game.copy()
+
+			self.visits = 0
+			self.value = np.zeros(5, dtype=float)
+			self.policy = {p: np.zeros(game.get_action_space(), dtype=float) for p in {-1, 1}}
+
+			self.children = {p: {mv: game.zobrist_hash_for_child(mv, p) for mv in game.get_legal_moves(p)} for p in {-1, 1}}
+
+	def register_state(state_library, game):
+		child = game.zobrist_hash()
+		if child not in state_library:
+			state_library[child] = Node(game)
+		return child
+
+	def recurse_to_leaf(state_library, current_root, player_to_move, broadcast_recipients, current_depth, depth_limit):
+		# the current node needs to know about the result of this evaluation
+		broadcast_recipients.add(current_root)
+
+		current_node = state_library[current_root]
+
+		legal_moves = current_node.children[player_to_move].keys()
+
+		values = {}
+		for x in legal_moves:
+			if current_node.children[player_to_move][x] in state_library:
+				child = state_library[current_node.children[player_to_move][x]]
+				values[x] = \
+					child.value[player_to_move]/child.visits + \
+					child.policy[player_to_move][x]*((current_node.visits**0.5)/child.visits) + \
+					random()/(child.visits**0.5)
+			else:
+				values[x] = \
+					current_node.value[player_to_move]/current_node.visits + \
+					current_node.visits**0.5 + random()
+
+		move = sorted([(wr, mv) for mv, wr in values.items()])[-1][1]
+
+		next_root_hash = current_node.children[player_to_move][move]
+
+		if next_root_hash in state_library and state_library[next_root_hash].game.status == GameStatus.in_progress and current_depth < depth_limit:
+			return recurse_to_leaf(state_library, next_root_hash, -player_to_move, broadcast_recipients, current_depth+1, depth_limit)
+		else:
+			broadcast_recipients.add(next_root_hash)
+			return current_root, player_to_move, move, broadcast_recipients
+
+	game = ConnectFour()
+	register_state(state_library, game)
+	current_root = game.zobrist_hash()
+
+	player = 1
+	move_stack = []
+	print('*'*80)
+	while state_library[current_root].game.status == GameStatus.in_progress:
+		# do some simulations to figure out what move to play
+		for s in range(simulations[player]):
+			recurse_root, player_to_move, move, broadcast_recipients = recurse_to_leaf(state_library, current_root, player, set(), 0, 50)
+
+			new_game = state_library[recurse_root].game.copy()
+			new_game.do_move(move, player_to_move)
+			leaf = register_state(state_library, new_game)
+
+			broadcast_recipients.add(leaf)
+
+			average_value = np.zeros(5, dtype=float)
+			for p in {-1, 1}:
+				features = np.array([state_library[leaf].game.get_state_as_features(p)], dtype=np.ubyte)
+				policy, value = model.predict(features)
+				move_legality = state_library[leaf].game.get_move_legality(p)
+				weighted_legal_moves = np.array([x * y for x, y in zip(policy[0], move_legality)], dtype=float)
+				weighted_legal_moves /= sum(weighted_legal_moves)
+				state_library[leaf].policy[p] = weighted_legal_moves
+				average_value += value[0]
+			average_value /= 2
+			average_value /= sum(average_value)
+
+			for br in broadcast_recipients:
+				state_library[br].visits += 1
+				state_library[br].value += average_value
+
+		# select move ;P
+		visits = {mv: 0 if h not in state_library else state_library[h].visits for mv, h in state_library[current_root].children[player].items()}
+		move = sorted([(wr, mv) for mv, wr in visits.items()])[-1][1]
+
+		weights = []
+		if random_proportional:
+			moves = [k for k, v in sorted(visits.items())]
+			weights = np.array([v for k, v in sorted(visits.items())], dtype=float)
+			weights /= sum(weights)
+			move = choice(moves, p=weights)
+
+		if len(move_stack) == 0:
+			print("visits:",visits)
+			print("weights:",[round(x, 5) for x in weights])
+			print("move:",move)
+
+		move_stack.append(move)
+		current_root = state_library[current_root].children[player][move]
+		player = -player
+
+	return move_stack, state_library[current_root].game.status
+
+
 def tree_test(simulations, state_library, random_proportional=True):
 
 	class Node:
@@ -252,7 +358,6 @@ def tree_test(simulations, state_library, random_proportional=True):
 
 	return move_stack, state_library[current_root].game.status
 
-
 def play_games_with_models(games, model):
 
 	trained_model_victories = 0
@@ -300,28 +405,17 @@ def play_games_with_models(games, model):
 
 	return trained_model_victories / (trained_model_victories + random_model_victories)
 
-
-def train_on_games():
-	"""
-	look in local directory for games,
-	convert each game to state-action pairs,
-	build a simple model,
-	try to train it ;)
-
-	later:
-		set up a function that can play two models against each other just using raw policies and play like a bunch of games
-		hopefully, the model that's trained will be the clear winner!
-	"""
+def create_dataset(most_recent_k=10000, batch_size=None):
 
 	import os
 	from tqdm import tqdm
 	from numpy.random import permutation
 
-	from model import build_tree_policy
-
 	known_games = []
 	for f in [x for x in sorted(os.listdir('./')) if len(x) == 10 and x.isdigit()]:
 		known_games += [x for x in open(f,'r').read().split('\n') if x.find('::') != -1]
+
+	known_games = known_games[-most_recent_k:]
 
 	features = []
 	policy = []
@@ -351,15 +445,27 @@ def train_on_games():
 
 	sbox = permutation(list(range(features.shape[0])))
 
-	p_features = np.zeros(features.shape, dtype=np.ubyte)
-	p_policy = np.zeros(policy.shape, dtype=int)
-	p_value = np.zeros(value.shape, dtype=int)
+	if batch_size is not None:
+		sbox = sbox[:batch_size]
+
+	p_features = np.zeros([len(sbox)]+list(features.shape)[1:], dtype=np.ubyte)
+	p_policy = np.zeros([len(sbox)]+list(policy.shape)[1:], dtype=int)
+	p_value = np.zeros([len(sbox)]+list(value.shape)[1:], dtype=int)
 
 	print("permuting dataset")
 	for s in tqdm(range(len(sbox))):
 		p_features[s] = features[sbox[s]]
 		p_policy[s] = policy[sbox[s]]
 		p_value[s] = value[sbox[s]]
+
+	return p_features, p_policy, p_value
+
+
+def train_on_games():
+
+	from model import build_tree_policy
+
+	features, policy, value = create_dataset()
 
 	model = build_tree_policy(
 		blocks=4,
@@ -371,30 +477,26 @@ def train_on_games():
 
 	history = []
 	for e in range(10):
-		model.fit(p_features, [p_policy, p_value], verbose=1, batch_size=1024, epochs=1, validation_split=0.10)
+		model.fit(features, [policy, value], verbose=1, batch_size=1024, epochs=1, validation_split=0.10)
 		history.append(play_games_with_models(games=1000, model=model))
 		print(history)
 
 if __name__ == "__main__":
 
-	"""
+	#train_on_games()
+	#exit()
+
 	from model import build_tree_policy
 
-	play_games_with_models(
-		1000,
-		build_tree_policy(
-			blocks=4,
-			filters=32,
-			input_shape=ConnectFour.get_feature_dimensions(),
-			policy_options=ConnectFour.get_action_space(),
-			value_options=5
-		)
+	batch_size = 128
+	simulations = 128
+	model = build_tree_policy(
+		blocks=4,
+		filters=32,
+		input_shape=ConnectFour.get_feature_dimensions(),
+		policy_options=ConnectFour.get_action_space(),
+		value_options=5
 	)
-	exit()
-	"""
-
-	train_on_games()
-	exit()
 
 	import time
 
@@ -402,11 +504,16 @@ if __name__ == "__main__":
 	state_library = {}
 	save = open(str(int(start_time)), "w")
 	for _ in range(1_000_000):
-		simulations = 1
-		moves, end_game_status = tree_test({1: simulations, -1: simulations}, state_library)
-		if _ % 100 == 0:
-			print(' '.join([str(x) for x in moves]) + '::' + str(end_game_status), "state_library:",len(state_library))
+		moves, end_game_status = model_enabled_tree_test({1: simulations, -1: simulations}, state_library, model)
+		if _ % 1 == 0:
+			print("training cycles:", _//batch_size, _%batch_size, "moves:", ' '.join([str(x) for x in moves]) + '::' + str(end_game_status), "state_library:",len(state_library))
 		save.write(' '.join([str(x) for x in moves]) + '::' + str(end_game_status) + '\n')
+		save.flush()
+
+		if _ and _ % batch_size == 0:
+			features, policy, value = create_dataset(batch_size=batch_size)
+			model.fit(features, [policy, value], verbose=1, batch_size=batch_size, epochs=1)
+			state_library = {}
 
 		if len(state_library) > 1_000_000:
 			for_removal = {k for k, v in state_library.items() if v.visits < 10}
