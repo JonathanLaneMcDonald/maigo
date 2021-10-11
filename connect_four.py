@@ -169,6 +169,8 @@ def model_enabled_tree_test(simulations, state_library, model, random_proportion
 			self.value = np.zeros(5, dtype=float)
 			self.policy = {p: np.zeros(game.get_action_space(), dtype=float) for p in {-1, 1}}
 
+			self.awaiting = 0
+
 			self.children = {p: {mv: game.zobrist_hash_for_child(mv, p) for mv in game.get_legal_moves(p)} for p in {-1, 1}}
 
 	def register_state(state_library, game):
@@ -185,17 +187,19 @@ def model_enabled_tree_test(simulations, state_library, model, random_proportion
 
 		legal_moves = current_node.children[player_to_move].keys()
 
+		value_category = GameStatus.player_1_wins if player_to_move == 1 else GameStatus.player_2_wins
+
 		values = {}
 		for x in legal_moves:
 			if current_node.children[player_to_move][x] in state_library:
 				child = state_library[current_node.children[player_to_move][x]]
 				values[x] = \
-					child.value[player_to_move]/child.visits + \
-					child.policy[player_to_move][x]*((current_node.visits**0.5)/child.visits) + \
-					random()/(child.visits**0.5)
+					child.value[value_category]/(1 + child.visits) + \
+					child.policy[player_to_move][x]*((current_node.visits/(1 + child.visits + child.awaiting))**0.5) + \
+					random()/(1 + child.visits)**0.5
 			else:
 				values[x] = \
-					current_node.value[player_to_move]/current_node.visits + \
+					current_node.value[value_category]/(1 + current_node.visits) + \
 					current_node.visits**0.5 + random()
 
 		move = sorted([(wr, mv) for mv, wr in values.items()])[-1][1]
@@ -216,7 +220,9 @@ def model_enabled_tree_test(simulations, state_library, model, random_proportion
 	move_stack = []
 	print('*'*80)
 	while state_library[current_root].game.status == GameStatus.in_progress:
-		# do some simulations to figure out what move to play
+
+		targets_for_update = {}
+
 		for s in range(simulations[player]):
 			recurse_root, player_to_move, move, broadcast_recipients = recurse_to_leaf(state_library, current_root, player, set(), 0, 50)
 
@@ -226,21 +232,35 @@ def model_enabled_tree_test(simulations, state_library, model, random_proportion
 
 			broadcast_recipients.add(leaf)
 
-			average_value = np.zeros(5, dtype=float)
-			for p in {-1, 1}:
-				features = np.array([state_library[leaf].game.get_state_as_features(p)], dtype=np.ubyte)
-				policy, value = model.predict(features)
-				move_legality = state_library[leaf].game.get_move_legality(p)
-				weighted_legal_moves = np.array([x * y for x, y in zip(policy[0], move_legality)], dtype=float)
-				weighted_legal_moves /= sum(weighted_legal_moves)
-				state_library[leaf].policy[p] = weighted_legal_moves
-				average_value += value[0]
-			average_value /= 2
-			average_value /= sum(average_value)
+			if leaf not in targets_for_update:
+				targets_for_update[leaf] = (player_to_move, broadcast_recipients)
+				for target in broadcast_recipients:
+					state_library[target].awaiting += 1
 
-			for br in broadcast_recipients:
-				state_library[br].visits += 1
-				state_library[br].value += average_value
+		features = []
+		feature_map = {}
+		for target in targets_for_update.keys():
+			for p in {1, -1}:
+				feature_map[target+str(p)] = len(features)
+				features.append(state_library[target].game.get_state_as_features(p))
+
+		policies, values = model.predict(np.array(features, dtype=np.ubyte))
+
+		for target in targets_for_update.keys():
+			for p in {1, -1}:
+				policy = policies[feature_map[target+str(p)]]
+				move_legality = state_library[target].game.get_move_legality(p)
+				weighted_legal_moves = np.array([x * y for x, y in zip(policy, move_legality)], dtype=float)
+				weighted_legal_moves /= sum(weighted_legal_moves)
+				state_library[target].policy[p] = weighted_legal_moves
+
+			state_library[target].value = values[feature_map[target + str(targets_for_update[target][0])]]
+
+			acting_player, broadcast_recipients = targets_for_update[target]
+			for recipient in broadcast_recipients:
+				state_library[recipient].visits += 1
+				state_library[recipient].value += state_library[target].value
+				state_library[recipient].awaiting -= 1
 
 		# select move ;P
 		visits = {mv: 0 if h not in state_library else state_library[h].visits for mv, h in state_library[current_root].children[player].items()}
@@ -254,6 +274,7 @@ def model_enabled_tree_test(simulations, state_library, model, random_proportion
 			move = choice(moves, p=weights)
 
 		if len(move_stack) == 0:
+			print("targets:",len(targets_for_update))
 			print("visits:",visits)
 			print("weights:",[round(x, 5) for x in weights])
 			print("move:",move)
@@ -507,6 +528,7 @@ if __name__ == "__main__":
 		moves, end_game_status = model_enabled_tree_test({1: simulations, -1: simulations}, state_library, model)
 		if _ % 1 == 0:
 			print("training cycles:", _//batch_size, _%batch_size, "moves:", ' '.join([str(x) for x in moves]) + '::' + str(end_game_status), "state_library:",len(state_library))
+			print("nodes awaiting results:",sum([1 for k, v in state_library.items() if v.awaiting]))
 		save.write(' '.join([str(x) for x in moves]) + '::' + str(end_game_status) + '\n')
 		save.flush()
 
