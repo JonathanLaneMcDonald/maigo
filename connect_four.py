@@ -503,6 +503,18 @@ def train_on_games():
 		print(history)
 
 if __name__ == "__main__":
+	"""
+	use the value to approximate the reward. if we have an actual reward (the game ends), then use that instead
+	this might help with training because it'll actually start to influence those end-game policies, too
+
+	reuse the tree. i have some good data now that you get a lot of benefit using 1 simulation/move when you reuse the tree
+	loop:
+		play 10k games (with dirichlet noise)
+		build dataset over the last 50k games
+		go ahead and fit to the entire dataset?
+		prune the tree (throw away everything with <10 visits?)
+		update the remaining nodes with the new model, including policy replacement (including noise) and value backprop to root		
+	"""
 
 	#train_on_games()
 	#exit()
