@@ -513,7 +513,10 @@ if __name__ == "__main__":
 		build dataset over the last 50k games
 		go ahead and fit to the entire dataset?
 		prune the tree (throw away everything with <10 visits?)
-		update the remaining nodes with the new model, including policy replacement (including noise) and value backprop to root		
+		update the remaining nodes with the new model, including policy replacement (including noise) and value backprop to root
+	
+	do a thing where the workers doing work on the tree are playing out games for themselves and not just contributing to one game
+	so you'll have like 100 workers working on 1 tree and doing the loop described above
 	"""
 
 	#train_on_games()
