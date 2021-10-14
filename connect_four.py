@@ -492,7 +492,7 @@ def random_vs_tree_test(simulations, games, random_proportional=False, purge_sta
 				print("something confusing is happening because nobody won?")
 
 		if g % 1 == 0:
-			print("model wins:", trained_model_victories, "random policy wins:", random_model_victories, "win ratio:", trained_model_victories / (trained_model_victories + random_model_victories))
+			print("model wins:", trained_model_victories, "random policy wins:", random_model_victories, "win ratio:", trained_model_victories / (trained_model_victories + random_model_victories), "tree nodes:", len(state_library))
 
 	return trained_model_victories / (trained_model_victories + random_model_victories)
 
@@ -626,6 +626,7 @@ if __name__ == "__main__":
 
 	reuse the tree. i have some good data now that you get a lot of benefit using 1 simulation/move when you reuse the tree
 	loop:
+		create n worker class instances whose job it is to run up and down the tree playing and recording games and outcomes
 		play 10k games (with dirichlet noise)
 		build dataset over the last 50k games
 		go ahead and fit to the entire dataset?
@@ -664,7 +665,7 @@ if __name__ == "__main__":
 
 	"""
 
-	simulations = 100
+	simulations = 1
 	random_vs_tree_test({1: simulations, -1: simulations}, 100000, purge_state_library=False)
 	exit()
 
