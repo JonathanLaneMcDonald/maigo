@@ -194,12 +194,12 @@ def model_enabled_tree_test(simulations, state_library, model, random_proportion
 			if current_node.children[player_to_move][x] in state_library:
 				child = state_library[current_node.children[player_to_move][x]]
 				values[x] = \
-					child.value[value_category]/(1 + child.visits) + \
+					child.value[value_category]/max(1, child.visits) + \
 					child.policy[player_to_move][x]*((current_node.visits**0.5)/(1 + child.visits + child.awaiting)) + \
-					random()/(1 + child.visits)**0.5
+					random()
 			else:
 				values[x] = \
-					current_node.value[value_category]/(1 + current_node.visits) + \
+					current_node.value[value_category]/max(1, current_node.visits) + \
 					current_node.visits**0.5 + random()
 
 		move = sorted([(wr, mv) for mv, wr in values.items()])[-1][1]
@@ -214,6 +214,7 @@ def model_enabled_tree_test(simulations, state_library, model, random_proportion
 
 	game = ConnectFour()
 	register_state(state_library, game)
+	global_root = game.zobrist_hash()
 	current_root = game.zobrist_hash()
 
 	player = 1
@@ -223,7 +224,7 @@ def model_enabled_tree_test(simulations, state_library, model, random_proportion
 
 		targets_for_update = {}
 
-		for s in range(simulations[player]):
+		for s in range(simulations[player] if current_root != global_root else 1000):
 			recurse_root, player_to_move, move, broadcast_recipients = recurse_to_leaf(state_library, current_root, player, set(), 0, 50)
 
 			new_game = state_library[recurse_root].game.copy()
@@ -285,7 +286,6 @@ def model_enabled_tree_test(simulations, state_library, model, random_proportion
 
 	return move_stack, state_library[current_root].game.status
 
-
 def tree_test(simulations, state_library, random_proportional=True):
 
 	class Node:
@@ -313,7 +313,7 @@ def tree_test(simulations, state_library, random_proportional=True):
 		for x in legal_moves:
 			if current_node.children[player_to_move][x] in state_library:
 				child = state_library[current_node.children[player_to_move][x]]
-				values[x] = child.victories[player_to_move]/(1+child.visits) + (current_node.visits**0.5)/(1+child.visits) + random()/((1+child.visits)**0.5)
+				values[x] = child.victories[player_to_move]/(1+child.visits) + (current_node.visits**0.5)/(1+child.visits) + random()/max(0.2, ((1+child.visits)**0.5))
 			else:
 				values[x] = current_node.visits**0.5 + random()
 
@@ -378,6 +378,124 @@ def tree_test(simulations, state_library, random_proportional=True):
 		player = -player
 
 	return move_stack, state_library[current_root].game.status
+
+def random_vs_tree_test(simulations, games, random_proportional=False, purge_state_library=True):
+
+	class Node:
+		def __init__(self, game: TeachableGame):
+			self.game = game.copy()
+			self.visits = 0
+			self.victories = {x: 0 for x in {-1, 0, 1}}
+			self.children = {p: {mv: game.zobrist_hash_for_child(mv, p) for mv in game.get_legal_moves(p)} for p in {-1, 1}}
+
+	def register_state(state_library, game):
+		child = game.zobrist_hash()
+		if child not in state_library:
+			state_library[child] = Node(game)
+		return child
+
+	def recurse_to_leaf(state_library, current_root, player_to_move, broadcast_recipients, current_depth, depth_limit):
+		# the current node needs to know about the result of this evaluation
+		broadcast_recipients.add(current_root)
+
+		current_node = state_library[current_root]
+
+		legal_moves = current_node.children[player_to_move].keys()
+
+		values = {}
+		for x in legal_moves:
+			if current_node.children[player_to_move][x] in state_library:
+				child = state_library[current_node.children[player_to_move][x]]
+				values[x] = child.victories[player_to_move]/(1+child.visits) + (current_node.visits**0.5)/(1+child.visits) + random()/max(0.2, ((1+child.visits)**0.5))
+			else:
+				values[x] = current_node.visits**0.5 + random()
+
+		move = sorted([(wr, mv) for mv, wr in values.items()])[-1][1]
+
+		next_root_hash = current_node.children[player_to_move][move]
+
+		if next_root_hash in state_library and state_library[next_root_hash].game.status == GameStatus.in_progress and current_depth < depth_limit:
+			return recurse_to_leaf(state_library, next_root_hash, -player_to_move, broadcast_recipients, current_depth+1, depth_limit)
+		else:
+			broadcast_recipients.add(next_root_hash)
+			return current_root, player_to_move, move, broadcast_recipients
+
+	state_library = {}
+	trained_model_victories = 0
+	random_model_victories = 0
+	for g in range(games+1):
+
+		if purge_state_library:
+			state_library = {}
+
+		game = ConnectFour()
+		register_state(state_library, game)
+		current_root = game.zobrist_hash()
+
+		player_map = {}
+		if random() < 0.50:
+			player_map = {1: "random", -1: "model"}
+		else:
+			player_map = {1: "model", -1: "random"}
+
+		player = 1
+		move_stack = []
+		while state_library[current_root].game.status == GameStatus.in_progress:
+
+			legal_moves = state_library[current_root].game.get_legal_moves(player)
+
+			move = choice(legal_moves)
+			if player_map[player] == "model":
+				for s in range(simulations[player]):
+					recurse_root, player_to_move, move, broadcast_recipients = recurse_to_leaf(state_library, current_root, player, set(), 0, 50)
+
+					new_game = state_library[recurse_root].game.copy()
+					new_game.do_move(move, player_to_move)
+					leaf = register_state(state_library, new_game)
+
+					broadcast_recipients.add(leaf)
+
+					rollout_result = state_library[leaf].game.complete_as_rollout(-player_to_move)
+
+					for br in broadcast_recipients:
+						state_library[br].visits += 1
+						state_library[br].victories[rollout_result] += 1
+
+				# select move ;P
+				visits = {mv: 0 if h not in state_library else state_library[h].visits for mv, h in state_library[current_root].children[player].items()}
+				move = sorted([(wr, mv) for mv, wr in visits.items()])[-1][1]
+
+				weights = []
+				if random_proportional:
+					moves = [k for k, v in sorted(visits.items())]
+					weights = np.array([v for k, v in sorted(visits.items())], dtype=float)
+					weights /= sum(weights)
+					move = choice(moves, p=weights)
+			else:
+				# so we have a root node, a player, and a move, but there's no guarantee that the target exists in the state_library...
+				if state_library[current_root].children[player][move] not in state_library:
+					new_game = state_library[current_root].game.copy()
+					new_game.do_move(move, player)
+					register_state(state_library, new_game)
+
+			move_stack.append(move)
+			current_root = state_library[current_root].children[player][move]
+			player = -player
+
+		if state_library[current_root].game.status in {GameStatus.player_1_wins, GameStatus.player_2_wins}:
+			winner = 1 if state_library[current_root].game.status == GameStatus.player_1_wins else -1
+			if player_map[winner] == "model":
+				trained_model_victories += 1
+			elif player_map[winner] == "random":
+				random_model_victories += 1
+			else:
+				print("something confusing is happening because nobody won?")
+
+		if g % 1 == 0:
+			print("model wins:", trained_model_victories, "random policy wins:", random_model_victories, "win ratio:", trained_model_victories / (trained_model_victories + random_model_victories))
+
+	return trained_model_victories / (trained_model_victories + random_model_victories)
+
 
 def play_games_with_models(games, model):
 
@@ -481,12 +599,11 @@ def create_dataset(most_recent_k=10000, batch_size=None):
 
 	return p_features, p_policy, p_value
 
-
-def train_on_games():
+def train_on_games(most_recent_k=1_000_000):
 
 	from model import build_tree_policy
 
-	features, policy, value = create_dataset()
+	features, policy, value = create_dataset(most_recent_k=most_recent_k)
 
 	model = build_tree_policy(
 		blocks=4,
@@ -498,7 +615,7 @@ def train_on_games():
 
 	history = []
 	for e in range(10):
-		model.fit(features, [policy, value], verbose=1, batch_size=1024, epochs=1, validation_split=0.10)
+		model.fit(features, [policy, value], verbose=1, batch_size=128, epochs=1, validation_split=0.10)
 		history.append(play_games_with_models(games=1000, model=model))
 		print(history)
 
@@ -517,16 +634,43 @@ if __name__ == "__main__":
 	
 	do a thing where the workers doing work on the tree are playing out games for themselves and not just contributing to one game
 	so you'll have like 100 workers working on 1 tree and doing the loop described above
+	purged state library
+	1 sims vs random	3239/3283
+	2 sims vs random	880/685
+	5 sims vs random	1009/506
+	10 sims vs random	1394/431
+	20 sims vs random	1375/220
+	50 sims vs random	1645/79
+	100 sims vs random	2325/27
+	200 sims vs random	9986/15
+	500 sims vs random	77466/11
+
+	reusing state library
+	1 sims vs random	36241/18104
+	2 sims vs random	14760/5896
+	5 sims vs random	10061/2544
+	10 sims vs random	7871/1219
+	20 sims vs random	5608/403
+	50 sims vs random	2727/48
+	100 sims vs random	2389/16
+	200 sims vs random	
+	500 sims vs random	
+
 	"""
 
-	#train_on_games()
-	#exit()
+	simulations = 100
+	random_vs_tree_test({1: simulations, -1: simulations}, 100000, purge_state_library=False)
+	exit()
+
+
+	train_on_games()
+	exit()
 
 	from model import build_tree_policy
 
-	batches = 32
+	batches = 2**32
 	batch_size = 32
-	simulations = 32
+	simulations = 1
 	model = build_tree_policy(
 		blocks=4,
 		filters=32,
@@ -542,18 +686,20 @@ if __name__ == "__main__":
 	save = open(str(int(start_time)), "w")
 	history = []
 	for _ in range(1_000_000):
-		moves, end_game_status = model_enabled_tree_test({1: simulations, -1: simulations}, state_library, model)
-		if _ % 1 == 0:
-			print("training cycles:", _//batch_size, _%batch_size, "moves:", ' '.join([str(x) for x in moves]) + '::' + str(end_game_status), "state_library:",len(state_library))
-			print("nodes awaiting results:",sum([1 for k, v in state_library.items() if v.awaiting]))
+		#moves, end_game_status = model_enabled_tree_test({1: simulations, -1: simulations}, state_library, model)
+		moves, end_game_status = tree_test({1: simulations, -1: simulations}, state_library)
+		if _ % 100 == 0:
+			print("training cycles:", _//(batch_size*batches), _%(batch_size*batches), "state_library:", len(state_library), "moves:", ' '.join([str(x) for x in moves]) + '::' + str(end_game_status))
+			#print("nodes awaiting results:",sum([1 for k, v in state_library.items() if v.awaiting]))
 		save.write(' '.join([str(x) for x in moves]) + '::' + str(end_game_status) + '\n')
 		save.flush()
 
 		if _ and _ % (batch_size*batches) == 0:
-			features, policy, value = create_dataset(most_recent_k=10*batch_size*batches, batch_size=batch_size*batches)
+			features, policy, value = create_dataset(most_recent_k=5*batch_size*batches, batch_size=batch_size*batches)
 			model.fit(features, [policy, value], verbose=1, batch_size=batch_size, epochs=1)
 			history.append(play_games_with_models(games=1000, model=model))
 			print(history)
+			# currently want to reset the tree for each game
 			state_library = {}
 
 		if len(state_library) > 1_000_000:
@@ -562,5 +708,6 @@ if __name__ == "__main__":
 			for key in for_removal:
 				state_library.pop(key)
 			print(len(state_library),"keys remaining in state_library")
+
 	exit()
 
