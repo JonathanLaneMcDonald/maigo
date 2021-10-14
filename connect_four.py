@@ -634,6 +634,12 @@ if __name__ == "__main__":
 	
 	do a thing where the workers doing work on the tree are playing out games for themselves and not just contributing to one game
 	so you'll have like 100 workers working on 1 tree and doing the loop described above
+	
+	implement UCT with the dirichlet noise - update dirichlet noise every time you sample policy
+	going to have a somewhat expensive tree update each time the model is retrained
+	play 10k games, then replay each of the last 50k games with a large batch size and a low learning rate
+	ensure that the trainable params in the model is small compared with the complexity of the training set	
+	
 	purged state library
 	1 sims vs random	3239/3283
 	2 sims vs random	880/685
